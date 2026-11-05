@@ -1,0 +1,11 @@
+import {build} from 'esbuild';
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import {hosts} from '../lib/catalog.mjs';
+const root=new URL('../',import.meta.url);const file=p=>new URL(p,root);
+const portraits=Object.fromEntries(await Promise.all(hosts.map(async h=>[h.id,'data:image/jpeg;base64,'+(await readFile(file(`public/hosts/${h.id}.jpg`))).toString('base64')])));
+const {outputFiles}=await build({absWorkingDir:fileURLToPath(root),entryPoints:['pages/entry.jsx'],bundle:true,minify:true,write:false,format:'iife',target:'es2022',jsx:'automatic',define:{'process.env.NODE_ENV':'"production"',__HC_PORTRAITS__:JSON.stringify(portraits)},legalComments:'eof'});
+let css=await readFile(file('app/globals.css'),'utf8');css+='\n.public-preview-note{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin:18px 0 0;padding:10px 14px;background:#eef0e5;border-radius:7px;color:#4d5945;font-size:12px;line-height:1.6}.public-preview-note strong{font-weight:650}';
+const favicon='data:image/svg+xml,'+encodeURIComponent(await readFile(file('public/favicon.svg'),'utf8'));
+const html=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Try a fictional one-to-one conversation marketplace. No account or payment required."><title>Human Connection — Interactive Demo</title><link rel="icon" href="${favicon}"><style>${css}</style></head><body><div id="root"></div><noscript>Enable JavaScript to try Human Connection.</noscript><script>${outputFiles[0].text.replace(/<\/script/gi,'<\\/script')}</script></body></html>`;
+await mkdir(file('docs/'),{recursive:true});await writeFile(file('docs/index.html'),html);await writeFile(file('docs/.nojekyll'),'');console.log(`Created GitHub Pages demo (${Math.round(Buffer.byteLength(html)/1024)} KiB).`);
