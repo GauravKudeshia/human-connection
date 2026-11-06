@@ -1,3 +1,47 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {makeBrowserRequest} from '../pages/transport.mjs';
-const storage=()=>{const map=new Map();return {getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v)}};
-test('public preview lets a guest complete a demo checkout and tip with no backend; state survives reload and is isolated by tab',async()=>{const store=storage(),key='demo',request=makeBrowserRequest(store,key);const run=async(action,payload)=>{const r=await request('/api/action',{method:'POST',headers:{'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify({action,payload})});const d=await r.json();assert.equal(r.status,200,d.error?.message);return d;};await run('eligibility',{adult:true,us:true,terms:true});const hold=await run('hold',{hostId:'maya',experience:'hear',format:'audio',duration:15});const b={bookingId:hold.result.bookingId};for(const action of ['accept','checkout','join','complete-demo'])await run(action,b);await run('tip',{...b,cents:500});const saved=await (await makeBrowserRequest(store,key)('/api/state')).json();assert.equal(saved.bookings[0].tipCents,500);assert.equal(saved.journals.length,3);assert.equal(saved.viewer.name,'Demo guest');assert.equal((await (await makeBrowserRequest(storage(),key)('/api/state')).json()).bookings.length,0);});
+import test from "node:test";
+import assert from "node:assert/strict";
+import { makeBrowserRequest } from "../pages/transport.mjs";
+const storage = () => {
+  const map = new Map();
+  return {
+    getItem: (k) => map.get(k) ?? null,
+    setItem: (k, v) => map.set(k, v),
+  };
+};
+test("public preview lets a guest complete a demo checkout and tip with no backend; state survives reload and is isolated by tab", async () => {
+  const store = storage(),
+    key = "demo",
+    request = makeBrowserRequest(store, key);
+  const run = async (action, payload) => {
+    const r = await request("/api/action", {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify({ action, payload }),
+    });
+    const d = await r.json();
+    assert.equal(r.status, 200, d.error?.message);
+    return d;
+  };
+  await run("eligibility", { adult: true, us: true, terms: true });
+  const hold = await run("hold", {
+    hostId: "maya",
+    experience: "hear",
+    format: "audio",
+    duration: 15,
+  });
+  const b = { bookingId: hold.result.bookingId };
+  for (const action of ["accept", "checkout", "join", "complete-demo"])
+    await run(action, b);
+  await run("tip", { ...b, cents: 500 });
+  const saved = await (
+    await makeBrowserRequest(store, key)("/api/state")
+  ).json();
+  assert.equal(saved.bookings[0].tipCents, 500);
+  assert.equal(saved.journals.length, 3);
+  assert.equal(saved.viewer.name, "Demo guest");
+  assert.equal(
+    (await (await makeBrowserRequest(storage(), key)("/api/state")).json())
+      .bookings.length,
+    0,
+  );
+});

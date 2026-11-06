@@ -14,6 +14,14 @@ const eslintConfig = defineConfig([
     "work/**",
   ]),
   {
+    files: ["app/components/**/*.jsx"],
+    rules: {
+      // Shared UI also runs as a standalone GitHub Pages bundle. Portraits are
+      // embedded data URIs there, so the Next image optimization endpoint is unavailable.
+      "@next/next/no-img-element": "off",
+    },
+  },
+  {
     files: ["components/ui/**/*.{ts,tsx}", "hooks/use-mobile.ts"],
     rules: {
       // These files are vendored verbatim from shadcn@4.17.0. Keep the

@@ -1,89 +1,572 @@
-'use client';
-import React,{useState,useEffect,useRef,useCallback} from 'react';
-import {ArrowUpRight,ArrowRight,ArrowLeft,Heart,Smile,Headphones,Sparkles,Video,Mic,MicOff,VideoOff,Compass,Clock,ShieldCheck,Check,ChevronDown,X,Search,Bell,Settings,LifeBuoy,LogOut,Star,Plus,MessageCircle,PhoneOff,Flag,MoreHorizontal,LayoutDashboard,Radio,Users,Receipt,RefreshCw,AlertCircle,CheckCircle2,Menu,Lock,BookOpen,Volume2,SlidersHorizontal} from 'lucide-react';
-import {hosts,experiences,money} from '../lib/catalog.mjs';
-import {hostPhoto, browserDemo} from '../lib/presentation.mjs';
-const TERMINAL=['COMPLETED','PARTIAL_DELIVERY','CANCELLED','DECLINED','EXPIRED','FAILED_SERVICE'];
-const expIcon={laugh:Smile,hear:Headphones,distract:Sparkles};
-const expName=id=>experiences.find(e=>e.id===id)?.name;
-const human=s=>s?.toLowerCase().replaceAll('_',' ').replace(/^./,s=>s.toUpperCase());
-const date=n=>new Date(n).toLocaleDateString('en-US',{month:'short',day:'numeric'});
-const fmtTime=secs=>`${Math.floor(Math.max(0,secs)/60)}:${String(Math.floor(Math.max(0,secs)%60)).padStart(2,'0')}`;
-function Mark(){return <svg viewBox="0 0 44 44" fill="none" aria-hidden="true"><ellipse cx="17" cy="22" rx="9" ry="14" transform="rotate(-30 17 22)"/><ellipse cx="27" cy="22" rx="9" ry="14" transform="rotate(30 27 22)"/></svg>;}
-function Modal({title,children,close,wide=false}){const ref=useRef(null);useEffect(()=>{const d=ref.current;d.showModal();return()=>{if(d.open)d.close();};},[]);return <dialog ref={ref} aria-label={title} className={wide?'modal wide':'modal'} onCancel={e=>{e.preventDefault();close();}} onClick={e=>{if(e.target===ref.current)close();}}><div className="modal-top"><h2>{title}</h2><button className="icon-btn" aria-label="Close dialog" onClick={close}><X size={21}/></button></div>{children}</dialog>;}
-function Empty({icon:Icon=MessageCircle,title,children,action}){return <div className="empty"><span className="empty-icon"><Icon size={30}/></span><h3>{title}</h3><p>{children}</p>{action}</div>;}
-export default function ConnectionApp({request=fetch}={}){
- const [s,setS]=useState(null),[auth,setAuth]=useState(false),[loadError,setLoadError]=useState(''),[view,setView]=useState('discover'),[filter,setFilter]=useState('all'),[format,setFormat]=useState('any'),[language,setLanguage]=useState('any'),[query,setQuery]=useState(''),[modal,setModal]=useState(null),[busy,setBusy]=useState(false),[toast,setToast]=useState(''),[now,setNow]=useState(Date.now()),[mobile,setMobile]=useState(false),[activeId,setActiveId]=useState(null),[hostTab,setHostTab]=useState('maya'),[opsTab,setOpsTab]=useState('overview');
- const lock=useRef(false),offset=useRef(0);const adopt=useCallback(data=>{setS(data);offset.current=data.serverNow-Date.now();setNow(data.serverNow);},[]);
- const refresh=useCallback(async()=>{try{const r=await request('/api/state');const data=await r.json();if(r.status===401){setAuth(true);return;}if(!r.ok)throw Error(data.error?.message);adopt(data);setAuth(false);setLoadError('');}catch(e){setLoadError(e.message||'Unable to load your workspace.');}},[adopt,request]);
- useEffect(()=>{refresh();const t=setInterval(()=>setNow(Date.now()+offset.current),1000);const p=setInterval(refresh,15000);return()=>{clearInterval(t);clearInterval(p);};},[refresh]);
- useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(''),4500);return()=>clearTimeout(t);},[toast]);
- async function act(action,payload={},message){if(lock.current)return null;lock.current=true;setBusy(true);try{const r=await request('/api/action',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':crypto.randomUUID()},body:JSON.stringify({action,payload})});const d=await r.json();if(!r.ok){if(r.status===401)setAuth(true);throw Error(d.error?.message||'Unable to save.');}adopt(d.state);if(message)setToast(message);return d;}catch(e){setToast(e.message);return null;}finally{lock.current=false;setBusy(false);}}
- const active=s?.bookings.find(b=>b.id===activeId)||s?.bookings.find(b=>!TERMINAL.includes(b.status));
- const openFlow=b=>{setActiveId(b.id);setView('session');setModal(null);window.scrollTo({top:0,behavior:'instant'});};
- const navigate=v=>{setView(v);setMobile(false);setQuery('');window.scrollTo({top:0,behavior:'instant'});};
- const isAvailable=h=>(s?.hostOnline[h.id]??true)&&!s?.blocks.includes(h.id)&&!s?.bookings.some(b=>b.hostId===h.id&&!TERMINAL.includes(b.status));
- const filtered=hosts.filter(h=>(filter==='all'||h.experiences.includes(filter))&&(format==='any'||h.formats.includes(format))&&(language==='any'||h.languages.includes(language))&&(`${h.name} ${h.tags.join(' ')} ${h.headline}`.toLowerCase().includes(query.toLowerCase()))&&!s?.blocks.includes(h.id)&&(view==='saved'?s?.favorites.includes(h.id):isAvailable(h)));
- const onFavorite=h=>{if(!s){setModal({type:'signin'});return;}act('favorite',{hostId:h.id});};
- function HostCard({h}){const saved=s?.favorites.includes(h.id),online=isAvailable(h),reviews=(s?.bookings||[]).filter(b=>b.hostId===h.id&&b.rating);const rating=reviews.length?(reviews.reduce((a,b)=>a+b.rating,0)/reviews.length).toFixed(1):null;return <article className="host-card"><button className="host-photo" onClick={()=>setModal({type:'profile',host:h})} aria-label={`Meet ${h.name}`}><img src={hostPhoto(h.id)} alt={`${h.name}, fictional demo host`} loading="lazy"/><span className={`availability ${online?'':'offline'}`}><i/>{online?'Available in demo':'Unavailable'}</span></button><button className={`save-btn ${saved?'saved':''}`} aria-label={`${saved?'Unsave':'Save'} ${h.name}`} aria-pressed={!!saved} onClick={()=>onFavorite(h)}><Heart size={18} fill={saved?'currentColor':'none'}/></button><div className="host-info"><div className="host-name"><h3>{h.name}<ShieldCheck size={17}/></h3><span className="new-host">{rating?`★ ${rating} (${reviews.length} demo)`:"New host"}</span></div><p>{h.headline}</p><div className="tags">{h.tags.slice(0,2).map(t=><span key={t}>{t}</span>)}</div><div className="host-card-footer"><span><strong>$10</strong> <small>/ 15 min</small></span><button onClick={()=>setModal({type:'profile',host:h})}>Meet {h.name}<ArrowUpRight size={16}/></button></div></div></article>;}
- const portalHeader=(eyebrow,title,desc)=><div className="page-heading"><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{desc}</p></div>;
- return <div className="app-shell"><a href="#main" className="skip">Skip to content</a>{mobile&&<div className="nav-scrim" onClick={()=>setMobile(false)}/>}
- <aside className={`sidebar ${mobile?'open':''}`}><button className="sidebar-close icon-btn" aria-label="Close menu" onClick={()=>setMobile(false)}><X size={18}/></button><button className="brand" onClick={()=>navigate('discover')}><span className="brand-mark"><Mark/></span><span>human<br/>connection<span className="brand-dot">.</span></span></button><div className="sidebar-label">A LITTLE HUMAN TIME</div><nav aria-label="Main navigation">{[['discover',Compass,'Find your people'],['history',Clock,'My sessions'],['saved',Heart,'Saved hosts']].map(([id,Icon,label])=><button key={id} className={`nav-item ${view===id?'selected':''}`} onClick={()=>navigate(id)}><Icon size={19}/>{label}{id==='saved'&&s?.favorites.length>0&&<span className="count">{s.favorites.length}</span>}</button>)}<div className="nav-divider"/><span className="sidebar-label secondary-label">EXPLORE THE DEMO</span>{[['host',Radio,'Host studio'],['ops',LayoutDashboard,'Operations']].map(([id,Icon,label])=><button key={id} className={`nav-item ${view===id?'selected':''}`} onClick={()=>navigate(id)}><Icon size={18}/>{label}<ArrowUpRight size={13} className="nav-arrow"/></button>)}</nav><div className="sidebar-bottom"><div className="little-note"><span className="note-star">✳</span><h4>Good company.<br/>Just a conversation away.</h4><p>A real person. A little space.<br/>A moment that’s yours.</p></div><button className="nav-item" onClick={()=>setModal({type:'help'})}><LifeBuoy size={18}/>Help & safety</button><button className="account" onClick={()=>setModal({type:'account'})}><span className="avatar">{s?.viewer?.name?.slice(0,1).toUpperCase()||'Y'}</span><span><strong>{s?'Your space':'Welcome in'}</strong><small>{browserDemo?'This browser tab':'Private demo account'}</small></span><Settings size={17}/></button></div></aside>
- <div className="workspace"><header className="topbar"><div className="breadcrumb"><button className="icon-btn mobile-menu" onClick={()=>setMobile(true)} aria-label="Open menu"><Menu/></button><span>{({discover:'Discover',saved:'Your favorites',history:'Your conversations',host:'Host studio',ops:'Operations',session:'Your conversation'})[view]}</span><span className="breadcrumb-dot">/</span><span className="muted">A little connection goes a long way</span></div><div className="top-actions"><span className="demo-chip"><span/>{browserDemo?'PUBLIC DEMO':'PRIVATE DEMO'}</span><button className="icon-btn" aria-label="Notifications" onClick={()=>setModal({type:'notifications'})}><Bell size={19}/>{s?.reports.some(r=>r.status==='OPEN')&&<i className="notification-dot"/>}</button></div></header>
- <main id="main" tabIndex={-1}>{browserDemo&&<div className="public-preview-note"><strong>Interactive demo</strong><span>No sign-in, real calls or charges. Use fictional details; activity stays in this tab.</span></div>}
- {loadError&&<div className="notice error"><AlertCircle size={18}/>{loadError}<button onClick={refresh}>Retry</button></div>}
- {s?.closed?<Empty icon={Lock} title="Your demo account is closed" action={<button className="primary" onClick={()=>act('reset',{},'A fresh demo workspace is ready.')}>Start a fresh demo</button>}>Your profile content has been removed. Demo financial records remain until you reset this workspace.</Empty>:<>
- {view!=='session'&&active&&!TERMINAL.includes(active.status)&&<button className="resume-banner" onClick={()=>openFlow(active)}><Radio size={18}/>Your session with {hosts.find(h=>h.id===active.hostId)?.name} · {human(active.status)}<span>Continue <ArrowRight size={16}/></span></button>}
- {(view==='discover'||view==='saved')&&<>
- {view==='discover'?<><section className="hero"><div className="hero-copy"><span className="eyebrow"><span className="tiny-sun">✳</span> LESS SCROLLING. MORE CONNECTING.</span><h1>A good conversation<br/>can <em>change your day.</em></h1><p>Share a laugh, let it out, or take your mind somewhere new.<br className="desktop-break"/> Find a friendly human for whatever you need today.</p><div className="hero-foot"><span><ShieldCheck size={16}/>Human hosts</span><span><Lock size={15}/>Private conversations</span><span>18+</span></div></div><div className="hero-art" aria-hidden="true"><div className="art-orbit"/><div className="art-circle"><span className="art-spark">✳</span><div className="polaroid p-one"><img src={hostPhoto('james')} alt=""/><span>good energy ↗</span></div><div className="polaroid p-two"><img src={hostPhoto('maya')} alt=""/><span>room to be you ♡</span></div><div className="art-chat">hey, how’s your day?</div><div className="art-smile"><Smile size={38} strokeWidth={1.5}/></div></div></div></section>
- <section className="experiences-section"><div className="section-top"><h2>What do you need today?</h2><span>No perfect words needed.</span></div><div className="experience-grid">{experiences.map(e=>{const Icon=expIcon[e.id];return <button key={e.id} className={`experience ${e.color} ${filter===e.id?'chosen':''}`} aria-pressed={filter===e.id} onClick={()=>setFilter(filter===e.id?'all':e.id)}><div className="experience-top"><span className="experience-icon"><Icon size={25} strokeWidth={1.6}/></span><ArrowUpRight size={22}/></div><h3>{e.name}</h3><p>{e.note}</p><span className="experience-label">{e.tag}</span></button>;})}</div></section></>:portalHeader('THE PEOPLE YOU CONNECT WITH','Familiar faces, good company.','Your saved hosts, ready for another conversation when they’re available.')}
- <section className="hosts-section"><div className="section-top host-section-heading"><div><h2>{view==='saved'?'Your saved hosts':'Meet your next good conversation'}<span className="small-flower">✳</span></h2><p>{view==='saved'?'A favorite is only a new instant request away.':'Different personalities. The same warm welcome.'}</p></div><span className="online-summary"><i/>{hosts.filter(isAvailable).length} demo hosts available</span></div>
- <div className="filter-bar"><div className="filter-tabs" role="group" aria-label="Experience">{[['all','All people'],...experiences.map(e=>[e.id,e.name])].map(([id,n])=><button key={id} className={filter===id?'active':''} onClick={()=>setFilter(id)}>{n}</button>)}</div><div className="filter-selects"><label><Video size={15}/><select aria-label="Conversation format" value={format} onChange={e=>setFormat(e.target.value)}><option value="any">All formats</option><option value="video">Video</option><option value="audio">Audio</option></select></label><label><select aria-label="Host language" value={language} onChange={e=>setLanguage(e.target.value)}><option value="any">All languages</option><option>English</option><option>Spanish</option></select></label><label className="search-host"><Search size={16}/><input aria-label="Search hosts" placeholder="Find a person" value={query} onChange={e=>setQuery(e.target.value)}/></label></div></div>
- {filtered.length?<div className="host-grid">{filtered.map(h=><HostCard h={h} key={h.id}/>)}</div>:<Empty icon={Heart} title={view==='saved'&&!s?.favorites.length?'Keep your favorite people close':'No hosts match just yet'} action={<button className="secondary" onClick={()=>{setFilter('all');setFormat('any');setLanguage('any');setQuery('');if(view==='saved')navigate('discover');}}>Explore all hosts</button>}>{view==='saved'?'Tap the heart on a host to find them here.':'Try a different experience or format. You won’t be charged.'}</Empty>}
- </section><section className="promise-strip"><div><ShieldCheck size={23}/><span><strong>Your comfort comes first.</strong><small>You can leave, block, or report at any time.</small></span></div><button onClick={()=>setModal({type:'help'})}>Our approach to safety <ArrowUpRight size={16}/></button></section><footer className="page-footer"><span>Human connection, on your terms.</span><span>Fictional hosts · Simulated payments · No live calls</span><button onClick={()=>setModal({type:'terms'})}>How the demo works <ArrowUpRight size={13}/></button></footer></>}
- {view==='history'&&<>{portalHeader('YOUR MOMENTS OF CONNECTION','Every conversation has a place.','Session details, receipts, reviews, and support — all together.')}<div className="section-top"><h2>My sessions</h2><span>{s?.bookings.length||0} sessions</span></div>{!s?.bookings.length?<Empty icon={Clock} title="Your first hello is still ahead" action={<button className="primary" onClick={()=>navigate('discover')}>Find your people <ArrowRight size={16}/></button>}>Start with 15 minutes and see where the conversation goes.</Empty>:<div className="session-list">{s.bookings.map(b=>{const h=hosts.find(h=>h.id===b.hostId);return <article className="session-row" key={b.id}><img src={hostPhoto(h.id)} alt=""/><div className="session-row-main"><h3>{expName(b.experience)} with {h.name}</h3><p>{date(b.createdAt)} · {b.duration} min · {human(b.format)} · {money(b.totalCents)}</p><span className={`status ${b.status==='COMPLETED'?'success':''}`}>{human(b.status)}</span></div><div className="session-row-actions">{!TERMINAL.includes(b.status)?<button className="primary" onClick={()=>openFlow(b)}>Continue <ArrowRight size={16}/></button>:<><button className="secondary" onClick={()=>setModal({type:'receipt',booking:b})}><Receipt size={15}/>Details</button>{b.status==='COMPLETED'&&<button className="secondary" onClick={()=>openFlow(b)}>Review & tip</button>}<button className="text-btn" onClick={()=>setModal({type:'profile',host:h})}>Connect again <ArrowUpRight size={14}/></button></>}</div></article>;})}</div>}</>}
- {view==='session'&&(active?<SessionFlow key={active.id} b={active} s={s} now={now} busy={busy} act={act} setModal={setModal} navigate={navigate}/>:<Empty title="A little connection starts here" action={<button className="primary" onClick={()=>navigate('discover')}>Explore hosts</button>}>Choose a host to start your demo conversation.</Empty>)}
- {view==='host'&&<>{portalHeader('YOUR HOST SPACE','Good company starts with you.','Explore a fictional host’s availability, requests, and demo earnings.')}<div className="portal-toolbar"><label className="field-label">Demo host<select value={hostTab} onChange={e=>setHostTab(e.target.value)}>{hosts.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label><button className="secondary" onClick={()=>setModal({type:'apply'})}><Plus size={16}/>Try host application</button></div>{s?<><div className="host-studio-profile"><img src={hostPhoto(hostTab)} alt=""/><div><h2>{hosts.find(h=>h.id===hostTab).name}’s studio</h2><p>Fictional approved host · Demo payout readiness</p></div><button className={`toggle ${s.hostOnline[hostTab]?'on':''}`} role="switch" aria-checked={s.hostOnline[hostTab]} onClick={()=>act('presence',{hostId:hostTab,online:!s.hostOnline[hostTab]})}><span/>{s.hostOnline[hostTab]?'Available':'Offline'}</button></div><div className="stats-grid">{[['Completed sessions',s.bookings.filter(b=>b.hostId===hostTab&&b.status==='COMPLETED').length],['Base earnings',money(s.bookings.filter(b=>b.hostId===hostTab&&b.status==='COMPLETED'&&b.payment==='SIMULATED_SUCCEEDED').reduce((a,b)=>a+Math.round(b.totalCents*.7),0))],['Tips · 100% to host',money(s.bookings.filter(b=>b.hostId===hostTab&&!b.tipRefunded).reduce((a,b)=>a+(b.tipCents||0),0))],['Transferred','$0']].map(([label,value])=><div className="stat" key={label}><span>{label}</span><strong>{value}</strong><small>Simulated activity</small></div>)}</div><div className="panel"><h2>Incoming requests</h2>{s.bookings.filter(b=>b.hostId===hostTab&&b.status==='HOST_REQUESTED').map(b=><div className="request-row" key={b.id}><span>{expName(b.experience)} · {b.duration} min · {human(b.format)}<small>Expires in {fmtTime((b.expiresAt-now)/1000)}</small></span><button className="secondary" onClick={()=>act('decline',{bookingId:b.id},'Request declined.')}>Decline</button><button className="primary" onClick={()=>act('accept',{bookingId:b.id},'Request accepted. The customer can check out.')}>Accept</button></div>)}{!s.bookings.some(b=>b.hostId===hostTab&&b.status==='HOST_REQUESTED')&&<p className="muted roomy">No pending requests. Your availability is reflected in discovery.</p>}</div><div className="notice"><Lock size={18}/><span>Demo balances only. Payout onboarding and transfers remain disabled until provider approval and production integration.</span></div></>:<SignIn/>}</>}
- {view==='ops'&&<>{portalHeader('PRIVATE WORKSPACE · OPERATIONS DEMO','Care behind every conversation.','Exercise safety coverage, incident handling, refunds, and financial controls.')}<div className="ops-tabs">{['overview','safety','refunds','ledger','applications'].map(t=><button className={opsTab===t?'active':''} onClick={()=>setOpsTab(t)} key={t}>{human(t)}</button>)}</div>{s?<Operations s={s} tab={opsTab} act={act} busy={busy} setModal={setModal}/>:<SignIn/>}</>}
- </>}
- </main></div>
- {toast&&<div className="toast" role="status"><CheckCircle2 size={18}/><span>{toast}</span><button aria-label="Dismiss notification" onClick={()=>setToast('')}><X size={16}/></button></div>}
- {modal&&<AppModal key={`${modal.type}-${modal.host?.id||modal.title||modal.booking?.id||''}`} modal={modal} setModal={setModal} s={s} busy={busy} act={act} onFavorite={onFavorite} isAvailable={isAvailable} openFlow={openFlow} navigate={navigate}/>}
- </div>;
-}
-function SignIn(){if(browserDemo)return <p className="notice">Opening your local demo workspace. Reload the page if it does not appear.</p>;return <div className="notice"><Lock size={18}/><span>Sign in to use your private demo workspace.</span><a className="primary" href="/signin-with-chatgpt?return_to=/" target="_top">Sign in</a></div>;}
-function SessionFlow({b,s,now,busy,act,setModal,navigate}){
- const h=hosts.find(h=>h.id===b.hostId);const [muted,setMuted]=useState(false),[camera,setCamera]=useState(false),[rating,setRating]=useState(b.rating||0),[review,setReview]=useState(b.review||''),[tip,setTip]=useState(null),[custom,setCustom]=useState('');const [mediaError,setMediaError]=useState('');const video=useRef(null),stream=useRef(null);
- useEffect(()=>()=>{stream.current?.getTracks().forEach(t=>t.stop());},[]);
- useEffect(()=>{if(b.status!=='LIVE'&&b.status!=='RECONNECTING'){stream.current?.getTracks().forEach(t=>t.stop());setCamera(false);}},[b.status]);
- async function toggleCamera(){if(camera){stream.current?.getTracks().forEach(t=>t.stop());setCamera(false);return;}try{stream.current=await navigator.mediaDevices.getUserMedia({video:true,audio:false});setCamera(true);setMediaError('');setTimeout(()=>{if(video.current)video.current.srcObject=stream.current;},0);}catch{setMediaError('Camera access is unavailable. You can continue the demo with your camera off.');}}
- const complete=b.status==='COMPLETED',ended=TERMINAL.includes(b.status);
- if(['LIVE','RECONNECTING'].includes(b.status))return <section className="call-page"><div className="call-heading"><span className="eyebrow">{expName(b.experience)} WITH {h.name.toUpperCase()}</span><span className="call-timer"><Clock size={16}/>{fmtTime((b.deadline-now)/1000)}</span></div><div className="demo-notice"><Radio size={15}/>Simulated room — no host is connected. {browserDemo?'Your camera and microphone are not used.':'Your camera preview stays on this device.'}</div><div className="call-stage"><div className={`call-host ${b.status==='RECONNECTING'?'reconnecting':''}`}><img src={hostPhoto(h.id)} alt={`${h.name}, fictional demo host`}/><div className="call-shade"/><div className="call-center"><span className="call-avatar"><img src={hostPhoto(h.id)} alt=""/></span><h1>{b.status==='RECONNECTING'?'Finding our way back…':`A moment with ${h.name}`}</h1><p>{b.status==='RECONNECTING'?'The original session clock is preserved.':'This is your space to try the conversation controls.'}</p><span className="waveform">{[1,2,3,4,5,6,7,8,9].map(n=><i key={n} style={{animationDelay:`${n*.13}s`}}/>)}</span></div><span className="call-name">{h.name} · Demo host</span><button className="call-report" onClick={()=>setModal({type:'report',host:h,booking:b})}><Flag size={16}/>Report or leave</button><div className="self-preview">{camera?<video ref={video} autoPlay muted playsInline/>:<><span>You</span><VideoOff size={22}/></>}<small>{camera?'Local camera preview':'Camera off'}</small></div></div></div>{mediaError&&<p className="inline-error" role="alert">{mediaError}</p>}<div className="call-controls"><button className={`control ${muted?'off':''}`} aria-pressed={muted} onClick={()=>setMuted(!muted)}>{muted?<MicOff/>:<Mic/>}<span>{muted?'Unmute':'Mute'} demo</span></button>{!browserDemo&&b.format==='video'&&<button className="control" aria-pressed={camera} onClick={toggleCamera}>{camera?<Video/>:<VideoOff/>}<span>{camera?'Camera off':'Preview camera'}</span></button>}<button className="control danger" onClick={()=>act('leave',{bookingId:b.id})}><PhoneOff/><span>Leave now</span></button><button className="control" disabled={busy} onClick={()=>act(b.status==='RECONNECTING'?'reconnect':'disconnect',{bookingId:b.id})}><RefreshCw/><span>{b.status==='RECONNECTING'?'Reconnect':'Test reconnect'}</span></button></div><div className="demo-call-end"><span>Explore what happens after a full conversation.</span><button className="secondary" disabled={busy} onClick={()=>act('complete-demo',{bookingId:b.id})}>Finish demo session <ArrowRight size={16}/></button></div></section>;
- if(ended)return <section className="post-session"><span className="post-icon">{complete?<Heart size={32}/>:<Check size={32}/>}</span><span className="eyebrow">{complete?'A LITTLE TIME, WELL SPENT':'YOUR SESSION HAS ENDED'}</span><h1>{complete?'Here’s to a good conversation.':human(b.status)}</h1><p>{complete?`Thanks for spending a little time with ${h.name}. How was it?`:'You’re out of the room. You can review the details or find another host.'}</p>{b.paidAt&&<div className="review-panel"><h3>{b.rating?'Your review':'How did it feel?'}</h3><div className="stars" aria-label="Session rating">{[1,2,3,4,5].map(n=><button key={n} aria-label={`Rate ${n} star${n>1?'s':''}`} aria-pressed={rating===n} onClick={()=>setRating(n)}><Star fill={n<=rating?'currentColor':'none'} size={30}/></button>)}</div><textarea aria-label="Optional review" placeholder="Anything you’d like to share? (Optional)" maxLength={1000} value={review} onChange={e=>setReview(e.target.value)}/><button className="secondary" disabled={!rating||busy} onClick={()=>act('rate',{bookingId:b.id,rating,review},'Your review is saved.')}>{b.rating?'Update review':'Save review'}</button></div>}{complete&&<div className="tip-panel"><div className="tip-heading"><span className="round-icon"><Heart size={21}/></span><div><h3>A little extra thank you?</h3><p>Always optional. 100% of the tip goes to {h.name}.</p></div></div>{b.tipCents?<div className="notice success"><CheckCircle2 size={19}/>{money(b.tipCents)} demo tip {b.tipRefunded?'refunded':'confirmed'}. No real payment was made.</div>:b.payment==='SIMULATED_REFUNDED'?<p>This demo payment was refunded. Tipping is unavailable.</p>:<><div className="tip-options">{[200,500,1000].map(c=><button key={c} className={tip===c?'chosen':''} onClick={()=>setTip(c)}>{money(c)}</button>)}<button className={tip==='custom'?'chosen':''} onClick={()=>setTip('custom')}>Custom</button></div>{tip==='custom'&&<label className="field-label">Custom amount ($1–$50)<input type="number" min="1" max="50" step="0.01" value={custom} onChange={e=>setCustom(e.target.value)} placeholder="5.00"/></label>}<div className="tip-actions"><button className="secondary" onClick={()=>navigate('history')}>No thanks</button><button className="primary" disabled={!tip||busy} onClick={()=>act('tip',{bookingId:b.id,cents:tip==='custom'?Math.round(Number(custom)*100):tip},'Demo tip confirmed. No real charge.')}>Send demo tip <Heart size={16}/></button></div></>}</div>}<div className="post-actions"><button className="text-btn" onClick={()=>setModal({type:'receipt',booking:b})}>View session details <Receipt size={15}/></button><button className="text-btn" onClick={()=>navigate('discover')}>Find another conversation <ArrowRight size={15}/></button></div></section>;
- return <section className="booking-page"><button className="text-btn" onClick={()=>navigate('discover')}><ArrowLeft size={16}/>Back to discovery</button><div className="booking-intro"><span className="eyebrow">YOUR NEXT HELLO</span><h1>{b.status==='HOST_REQUESTED'?'A little hello is on its way.':b.status==='HOST_ACCEPTED'?`${h.name} is ready to meet you.`:'Your conversation is ready.'}</h1><p>{b.status==='HOST_REQUESTED'?'Your host has 30 seconds to respond. No payment has been made.':b.status==='HOST_ACCEPTED'?'Take a moment to review your session before continuing.':'Find a comfortable spot. There’s no pressure to have the perfect words.'}</p></div><div className="booking-grid"><div className="booking-person"><img src={hostPhoto(h.id)} alt={`${h.name}, fictional demo host`}/><h2>{h.name}</h2><p>{h.headline}</p><div className="tags">{h.tags.map(t=><span key={t}>{t}</span>)}</div><span className="demo-caption">Fictional host · Prototype experience</span></div><div className="checkout-card"><h2>Your conversation</h2><dl><div><dt>Experience</dt><dd>{expName(b.experience)}</dd></div><div><dt>Duration</dt><dd>{b.duration} minutes</dd></div><div><dt>Format</dt><dd>{human(b.format)}</dd></div><div><dt>Demo service price</dt><dd>{money(b.totalCents)}</dd></div><div><dt>Demo taxes & fees</dt><dd>$0</dd></div><div className="total"><dt>Demo total</dt><dd>{money(b.totalCents)}</dd></div></dl>{['HOST_REQUESTED','HOST_ACCEPTED'].includes(b.status)&&<div className="reservation-clock"><Clock size={16}/>{b.status==='HOST_REQUESTED'?'Host response':'Reservation'} expires in {fmtTime((b.expiresAt-now)/1000)}</div>}{b.status==='HOST_REQUESTED'?<><div className="notice"><Radio size={18}/><span>This demo host responds when you click below. You can also accept from Host studio.</span></div><button className="primary full" disabled={busy||b.expiresAt<=now} onClick={()=>act('accept',{bookingId:b.id})}>Simulate host acceptance <ArrowRight size={17}/></button></>:b.status==='HOST_ACCEPTED'?<><p className="policy-note">Demo policy v1.2: cancel before joining for a full simulated refund. Early exits and service failures go to review. The session clock begins when the demo room starts.</p><button className="primary full" disabled={busy||b.expiresAt<=now} onClick={()=>act('checkout',{bookingId:b.id})}><Lock size={16}/>Confirm {money(b.totalCents)} demo checkout</button><p className="microcopy">No card required. No real charge. No tip added.</p></>:<><div className="notice success"><CheckCircle2 size={18}/>Demo payment confirmed.</div><button className="primary full" disabled={busy} onClick={()=>act('join',{bookingId:b.id})}>{b.format==='video'?<Video size={18}/>:<Headphones size={18}/>}Enter simulated room</button><p className="microcopy">No real host will join. {browserDemo?'Your camera and microphone stay off.':'Camera preview is optional.'}</p></>}<button className="text-btn cancel-request" disabled={busy} onClick={()=>act('cancel',{bookingId:b.id},'Request cancelled.')}>Cancel {b.status==='READY'?'and refund demo payment':'request'}</button>{b.expiresAt<=now&&b.status!=='READY'&&<p className="inline-error">This reservation has expired. Return to discovery to request a host again.</p>}</div></div></section>;
-}
-function Operations({s,tab,act,busy,setModal}){return <>
- {tab==='overview'&&<><div className="stats-grid">{[['Active sessions',s.bookings.filter(b=>['LIVE','RECONNECTING'].includes(b.status)).length],['Open safety cases',s.reports.filter(r=>r.status!=='CLOSED').length],['Refund reviews',s.refunds.filter(r=>r.status==='OPEN').length],['Journal balance',money(s.journals.flatMap(j=>j.lines).reduce((a,l)=>a+l.debit-l.credit,0))]].map(([t,v])=><div className="stat" key={t}><span>{t}</span><strong>{v}</strong><small>This private demo workspace</small></div>)}</div><div className="panel"><h2>Service controls</h2><p className="muted">Turning either control off prevents new checkouts and ends active demo calls with a review.</p>{[['staffed','Safety coverage available','Simulated staffing signal. No actual safety operator is on duty.'],['providerHealthy','Call provider healthy','Simulated provider status. Live video is not integrated.']].map(([key,title,note])=><div className="setting-row" key={key}><span><strong>{title}</strong><small>{note}</small></span><button className={`toggle ${s.operations[key]?'on':''}`} role="switch" aria-checked={s.operations[key]} onClick={()=>act('operations',{setting:key,value:!s.operations[key]})} disabled={busy}><span/>{s.operations[key]?'On':'Off'}</button></div>)}</div><div className="panel"><h2>Live launch stays closed</h2><p className="muted">This build accepts no real money and issues no video-provider tokens.</p><div className="gate-grid">{['Payment provider eligibility','Identity & age verification','Approved refund and tax policies','Staffed safety response','LiveKit integration & signed webhooks','Production RBAC & PostgreSQL migrations','Accessibility & security review','Reconciliation & backup drills'].map(t=><div key={t}><Lock size={16}/>{t}<span>Pending</span></div>)}</div></div></>}
- {tab==='safety'&&<div className="panel"><h2>Safety cases</h2><p className="muted">Demo case records only. Reports here do not notify a real operator.</p>{!s.reports.length?<Empty icon={ShieldCheck} title="No open conversations to review">Use Report on a host or in the demo room to try this workflow.</Empty>:s.reports.map(r=><div className="case-card" key={r.id}><div><span className={`status ${r.urgent?'alert':''}`}>{r.urgent?'Urgent · ':''}{human(r.status)}</span><small>{date(r.createdAt)} · {r.id.slice(0,8)}</small></div><h3>{hosts.find(h=>h.id===r.hostId)?.name}</h3><p>{r.reason}</p>{r.note&&<p className="muted">Operator note: {r.note}</p>}<div className="button-row">{['ASSIGNED','ESCALATED','CLOSED'].filter(x=>x!==r.status).map(status=><button className="secondary" key={status} onClick={()=>setModal({type:'reason',title:`${human(status)} case`,label:'Audit reason',submit:reason=>act('case-action',{caseId:r.id,status,reason},'Case updated.')})}>{human(status)}</button>)}</div></div>)}</div>}
- {tab==='refunds'&&<div className="panel"><h2>Refund reviews</h2>{!s.refunds.length?<Empty icon={Receipt} title="Nothing waiting for review">Refund requests and interrupted demo calls appear here.</Empty>:s.refunds.map(r=>{const b=s.bookings.find(b=>b.id===r.bookingId);return <div className="case-card" key={r.id}><span className="status">{human(r.status)}</span><h3>{hosts.find(h=>h.id===b.hostId)?.name} · {money(b.totalCents)}</h3><p>{r.reason}</p>{r.status==='OPEN'&&<button className="primary" onClick={()=>setModal({type:'reason',title:'Resolve with a demo refund',label:'Audit reason',submit:reason=>act('refund-resolve',{refundId:r.id,reason},'Demo refund recorded with a compensating journal.')})}>Approve demo refund</button>}</div>;})}</div>}
- {tab==='ledger'&&<div className="panel"><h2>Balanced by design</h2><p className="muted">Integer cents in USD. Corrections append new journal groups. These are simulated accounting entries.</p>{!s.journals.length?<Empty icon={BookOpen} title="Your demo ledger is empty">Complete a demo checkout to see charge, delivery, and tip entries.</Empty>:s.journals.map(j=><div className="journal" key={j.id}><div className="journal-head"><strong>{human(j.event.split(':')[0])}</strong><span className="status success">Balanced</span><small>{date(j.createdAt)}</small></div><div className="table-scroll"><table><thead><tr><th>Account</th><th>Debit</th><th>Credit</th></tr></thead><tbody>{j.lines.map((l,i)=><tr key={i}><td>{human(l.account)}</td><td>{l.debit?money(l.debit):'—'}</td><td>{l.credit?money(l.credit):'—'}</td></tr>)}</tbody></table></div></div>)}</div>}
- {tab==='applications'&&<div className="panel"><h2>Host applications</h2>{!s.applications.length?<Empty icon={Users} title="No applications yet">Try submitting an application from Host studio.</Empty>:s.applications.map(a=><div className="case-card" key={a.id}><span className="status">{human(a.status)}</span><h3>{a.name}</h3><p>{a.bio}</p><p className="muted">Approval requires identity checks, training, and payout readiness. This demo never grants live hosting access.</p>{a.status==='PENDING_REVIEW'&&<div className="button-row">{[['TRAINING_REQUIRED','Send to training'],['DECLINED','Decline']].map(([status,label])=><button className="secondary" key={status} onClick={()=>setModal({type:'reason',title:label,label:'Review reason',submit:reason=>act('application-decision',{applicationId:a.id,status,reason},'Application reviewed.')})}>{label}</button>)}</div>}</div>)}</div>}
- <p className="audit-foot"><ShieldCheck size={14}/>{s.audit.length} recorded demo actions · All role previews operate within your own workspace.</p>
- </>;}
-function AppModal({modal,setModal,s,busy,act,onFavorite,isAvailable,openFlow,navigate}){
- const close=()=>setModal(null);const h=modal.host,b=modal.booking;const [duration,setDuration]=useState(15),[format,setFormat]=useState(h?.formats[0]||'video'),[experience,setExperience]=useState(h?.experiences[0]||'hear'),[adult,setAdult]=useState(false),[us,setUs]=useState(false),[terms,setTerms]=useState(false),[text,setText]=useState(''),[name,setName]=useState(''),[urgent,setUrgent]=useState(false),[step,setStep]=useState(false);
- const title=({profile:`Meet ${h?.name}`,help:'A space that feels safe',terms:'A little more about this demo',account:'Your space',notifications:'Your updates',signin:'Welcome to your space',receipt:'Your session details',report:'We’re here to help',apply:'Good listeners welcome',reason:modal.title})[modal.type];
- async function reserve(){if(!s){setModal({type:'signin'});return;}if(!s.eligible){if(!step){setStep(true);return;}const eligible=await act('eligibility',{adult,us,terms});if(!eligible)return;}const d=await act('hold',{hostId:h.id,duration,format,experience});if(d){openFlow(d.state.bookings.find(b=>b.id===d.result.bookingId));}}
- return <Modal title={title} close={close} wide={modal.type==='profile'}>
- {modal.type==='profile'&&<div className="profile-grid"><div className="profile-portrait"><img src={hostPhoto(h.id)} alt={`${h.name}, fictional demo host`}/><span className="availability"><i/>{isAvailable(h)?'Available in demo':'Unavailable'}</span></div><div className="profile-body"><span className="eyebrow">A FRIENDLY FACE FOR YOUR DAY</span><h3 className="profile-name">{h.name}<span>{h.pronouns}</span><button className={`icon-btn ${s?.favorites.includes(h.id)?'saved':''}`} aria-label={`Save ${h.name}`} onClick={()=>onFavorite(h)}><Heart fill={s?.favorites.includes(h.id)?'currentColor':'none'} size={21}/></button></h3><p className="profile-tagline">{h.headline}</p><p>{h.bio}</p><div className="profile-meta"><span><MessageCircle size={15}/>{h.languages.join(' & ')}</span><span><Sparkles size={15}/>New host</span></div><span className="demo-caption">Fictional profile · Stock portrait · No real host connection</span><div className="profile-divider"/><label className="field-label">What’s on your mind?<select value={experience} onChange={e=>setExperience(e.target.value)}>{h.experiences.map(id=><option key={id} value={id}>{expName(id)}</option>)}</select></label><div className="form-pair"><fieldset><legend>A little time</legend><div className="segmented">{[15,30].map(n=><button aria-pressed={duration===n} className={duration===n?'active':''} key={n} onClick={()=>setDuration(n)}>{n} min <small>{n===15?'$10':'$18'}</small></button>)}</div></fieldset><fieldset><legend>Your format</legend><div className="segmented">{h.formats.map(f=><button aria-pressed={format===f} className={format===f?'active':''} key={f} onClick={()=>setFormat(f)}>{f==='video'?<Video size={16}/>:<Headphones size={16}/>} {human(f)}</button>)}</div></fieldset></div>{step&&!s?.eligible&&<div className="eligibility"><h4>Before your first hello</h4><label><input type="checkbox" checked={adult} onChange={e=>setAdult(e.target.checked)}/>I am 18 or older.</label><label><input type="checkbox" checked={us} onChange={e=>setUs(e.target.checked)}/>I am currently in the United States.</label><label><input type="checkbox" checked={terms} onChange={e=>setTerms(e.target.checked)}/>I understand this is a demo of platonic entertainment, not therapy or crisis care. No real payment or call will occur.</label></div>}<button className="primary full" disabled={busy||!isAvailable(h)||(step&&(!adult||!us||!terms))} onClick={reserve}>{busy?'Saving…':`Request a conversation · ${duration===15?'$10':'$18'}`}<ArrowRight size={17}/></button><p className="microcopy">Host accepts first. Then you confirm the demo total.</p><div className="profile-safety"><button onClick={()=>setModal({type:'report',host:h})}>Report profile</button><button onClick={async()=>{if(!s){setModal({type:'signin'});return;}const d=await act('block',{hostId:h.id},`${h.name} has been blocked in your workspace.`);if(d)close();}}>Block host</button></div></div></div>}
- {modal.type==='signin'&&<div className="modal-content"><p>{browserDemo?'No account is needed for the public preview.':'Sign in to keep your saved hosts, session history, and demo activity together.'}</p><SignIn/></div>}
- {modal.type==='help'&&<div className="modal-content"><div className="safety-lead"><ShieldCheck size={31}/><p>Your comfort comes first. You can end any conversation immediately.</p></div><h3>Conversations, with clear boundaries</h3><p>The proposed service is platonic, for adults 18+ in the U.S. Hosts are friendly company, not therapists or crisis professionals.</p><h3>You stay in control</h3><p>Leave from the call controls at any moment. Report a host from their profile or the room, and block them to remove them from your discovery.</p><h3>{browserDemo?'This is a browser-only demo':'This is a private demo'}</h3><p>Reports are stored in your demo workspace for testing. They are not sent to a real safety team. Live staffed hours have not been set; paid service is closed.</p><div className="notice"><AlertCircle size={18}/>This demo cannot provide emergency assistance. If you are in immediate danger, contact local emergency services.</div><button className="primary full" onClick={close}>Got it</button></div>}
- {modal.type==='terms'&&<div className="modal-content"><p>Human Connection V1.2 is an interactive prototype of a human conversation marketplace.</p><div className="info-item"><Check size={18}/><span>Browse five fictional hosts across Make Me Laugh, Hear Me Out, and Distract Me.</span></div><div className="info-item"><Check size={18}/><span>Try 15- or 30-minute audio/video flows, simulated checkout, reviews, and optional tips.</span></div><div className="info-item"><Check size={18}/><span>{browserDemo?'Your activity stays in this browser tab. No login or shared account is used.':'Your activity is saved in a private workspace tied to your sign-in.'}</span></div><h3>Demo policy · version 1.2</h3><p>Cancel before joining for a full simulated refund. Early exits and failed service create a refund review. Tips are optional after completed sessions, within 24 hours, with a $1–$50 range. No real funds move.</p><p>Stock photos illustrate fictional profiles. Live payments, real host verification, live video, and staffed safety response require production integrations and approvals. No service hours are advertised until then.</p></div>}
- {modal.type==='notifications'&&<div className="modal-content">{!s?<SignIn/>:!s.audit.length?<Empty icon={Bell} title="A quiet moment">Your recent demo activity will appear here.</Empty>:s.audit.slice(0,10).map(a=><div className="notification-row" key={a.id}><CheckCircle2 size={17}/><span>{human(a.action.replaceAll('-',' '))}<small>{new Date(a.createdAt).toLocaleString()}</small></span></div>)}</div>}
- {modal.type==='account'&&<div className="modal-content">{!s?<SignIn/>:<><div className="account-card"><span className="avatar">{s.viewer?.name?.slice(0,1)?.toUpperCase()}</span><div><strong>{s.viewer?.name}</strong><small>{browserDemo?'Local browser demo':'Private demo workspace'}</small></div></div><h3>Blocked hosts</h3>{!s.blocks.length?<p className="muted">No blocked hosts.</p>:s.blocks.map(id=><div className="setting-row" key={id}><span>{hosts.find(h=>h.id===id)?.name}</span><button className="secondary" onClick={()=>act('unblock',{hostId:id},'Host unblocked.')}>Unblock</button></div>)}<h3>Account & data</h3><p>{browserDemo?'Your demo activity is stored in this tab only.':'Your prototype activity is saved on the server.'} Closing your account removes profile content and prevents new sessions; demo financial records are retained until you reset.</p><button className="secondary full" onClick={()=>setModal({type:'reason',title:'Close demo account',label:'Type CLOSE to confirm',submit:async reason=>{if(reason!=='CLOSE')return null;return act('close-account',{},'Demo account closed.');}})}>Close demo account</button><button className="text-btn roomy" onClick={()=>setModal({type:'reason',title:'Reset your demo workspace',label:'Type RESET to delete all demo activity',submit:async reason=>{if(reason!=='RESET')return null;const d=await act('reset',{},'Demo workspace reset.');if(d)navigate('discover');return d;}})}>Reset all demo data</button><span>{!browserDemo&&<a className="text-btn" href="/signout-with-chatgpt?return_to=/" target="_top"><LogOut size={16}/>Sign out</a>}</span></>}</div>}
- {modal.type==='receipt'&&<div className="modal-content"><div className="receipt-brand"><Mark/><strong>human connection.</strong><span>DEMO RECEIPT</span></div><h3>{expName(b.experience)} with {hosts.find(h=>h.id===b.hostId)?.name}</h3><p className="muted">{date(b.createdAt)} · {b.duration} minutes · {human(b.format)}</p><dl className="receipt-details"><div><dt>Session status</dt><dd>{human(b.status)}</dd></div><div><dt>Base service</dt><dd>{money(b.totalCents)}</dd></div><div><dt>Optional tip</dt><dd>{money(b.tipCents||0)}</dd></div><div><dt>Payment</dt><dd>{human(b.payment)}</dd></div><div><dt>Real money charged</dt><dd>$0</dd></div><div><dt>Policy</dt><dd>{b.policyVersion}</dd></div></dl><p className="microcopy">Reference: {b.id}</p>{b.payment==='SIMULATED_SUCCEEDED'&&!s.refunds.some(r=>r.bookingId===b.id)&&<button className="secondary full" onClick={()=>setModal({type:'reason',title:'Request a refund review',label:'Tell us what happened',submit:reason=>act('refund-request',{bookingId:b.id,reason},'Your demo refund request is saved.')})}>Request refund review</button>}{s.refunds.filter(r=>r.bookingId===b.id).map(r=><div className="notice" key={r.id}><Receipt size={18}/>Refund review: {human(r.status)}</div>)}<button className="text-btn roomy" onClick={()=>setModal({type:'report',host:hosts.find(h=>h.id===b.hostId),booking:b})}>Report a concern <Flag size={15}/></button></div>}
- {modal.type==='report'&&<form className="modal-content" onSubmit={async e=>{e.preventDefault();if(!s){setModal({type:'signin'});return;}const d=await act('report',{hostId:h.id,bookingId:b?.id,reason:text,urgent},'Demo report saved. No real operator has been notified.');if(d)close();}}><p>Tell us about your concern with {h.name}. Reports in this demo appear in Operations, within your private workspace.</p><label className="field-label">What happened?<textarea required maxLength={2000} value={text} onChange={e=>setText(e.target.value)} placeholder="Share the details you’re comfortable sharing."/></label><label className="checkbox-row"><input type="checkbox" checked={urgent} onChange={e=>setUrgent(e.target.checked)}/>Mark urgent{b&&' and end this session immediately'}</label><div className="notice"><AlertCircle size={17}/>Demo reports do not reach a live safety operator.</div><button className="primary full" disabled={busy||!text.trim()}>Save demo report</button>{b&&['LIVE','RECONNECTING'].includes(b.status)&&<button type="button" className="secondary full" onClick={async()=>{await act('leave',{bookingId:b.id});close();}}><PhoneOff size={17}/>Leave now</button>}</form>}
- {modal.type==='apply'&&<form className="modal-content" onSubmit={async e=>{e.preventDefault();const d=await act('apply',{name,bio:text,adult},'Demo application submitted.');if(d)close();}}><p>Introduce yourself. A real host would also complete identity verification, a mock conversation, training, and payout onboarding before going online.</p>{s?.applications.length?<div className="notice">Application status: {human(s.applications[0].status)}</div>:<><label className="field-label">Your name<input required maxLength={100} value={name} onChange={e=>setName(e.target.value)}/></label><label className="field-label">What makes you good company?<textarea required maxLength={1000} value={text} onChange={e=>setText(e.target.value)}/></label><label className="checkbox-row"><input type="checkbox" required checked={adult} onChange={e=>setAdult(e.target.checked)}/>I am 18 or older.</label><button className="primary full" disabled={busy}>Submit demo application</button></>}</form>}
- {modal.type==='reason'&&<form className="modal-content" onSubmit={async e=>{e.preventDefault();const result=await modal.submit(text);if(result)close();else if(text!==''&&modal.label.startsWith('Type'))setText('');}}><label className="field-label">{modal.label}<textarea required maxLength={2000} value={text} onChange={e=>setText(e.target.value)} autoFocus/></label><button className="primary full" disabled={busy||!text.trim()}>Confirm</button></form>}
- </Modal>;
+"use client";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import {
+  ArrowRight,
+  ArrowUpRight,
+  Heart,
+  Clock,
+  Menu,
+  Settings,
+  Bell,
+  X,
+  Radio,
+  AlertCircle,
+  CheckCircle2,
+  Lock,
+} from "lucide-react";
+import { hosts } from "../lib/catalog.mjs";
+import { browserDemo } from "../lib/presentation.mjs";
+import { isTerminal } from "../lib/demo-policy.mjs";
+import { hostAvailable, rankMatches } from "../lib/matching.mjs";
+import {
+  Mark,
+  Modal,
+  Empty,
+  PageHeading,
+  SignIn,
+  human,
+} from "./components/shared";
+import Landing from "./components/landing";
+import MomentFinder from "./components/moment-finder";
+import HostBrowser from "./components/host-browser";
+import SessionHistory from "./components/session-history";
+import SessionFlow from "./components/session-flow";
+import HostStudio from "./components/host-studio";
+import Operations from "./components/operations";
+import AppModal from "./components/app-modal";
+import { EligibilityDialog } from "./components/booking-options";
+
+const defaultFilters = {
+  experience: "all",
+  format: "any",
+  language: "any",
+  query: "",
+};
+export default function ConnectionApp({ request = fetch } = {}) {
+  const [s, setS] = useState(null),
+    [auth, setAuth] = useState(false),
+    [loadError, setLoadError] = useState("");
+  const [view, setView] = useState("discover"),
+    [modal, setModal] = useState(null),
+    [busy, setBusy] = useState(false),
+    [toast, setToast] = useState(""),
+    [now, setNow] = useState(0);
+  const [activeId, setActiveId] = useState(null),
+    [opsTab, setOpsTab] = useState("overview"),
+    [step, setStep] = useState(0),
+    [matchError, setMatchError] = useState("");
+  const [preferences, setPreferences] = useState({
+      experience: "hear",
+      style: null,
+      duration: 15,
+      format: "audio",
+      language: "English",
+    }),
+    [filters, setFilters] = useState(defaultFilters);
+  const lock = useRef(false),
+    offset = useRef(0),
+    requestVersion = useRef(0),
+    main = useRef(null);
+  const adopt = useCallback((data) => {
+    setS(data);
+    offset.current = data.serverNow - Date.now();
+    setNow(data.serverNow);
+  }, []);
+  const refresh = useCallback(async () => {
+    const version = ++requestVersion.current;
+    try {
+      const r = await request("/api/state");
+      const data = await r.json();
+      if (version !== requestVersion.current) return;
+      if (r.status === 401) {
+        setAuth(true);
+        return;
+      }
+      if (!r.ok) throw Error(data.error?.message || "Unable to open the demo.");
+      adopt(data);
+      setAuth(false);
+      setLoadError("");
+    } catch (error) {
+      if (version === requestVersion.current)
+        setLoadError(error.message || "Unable to open your workspace.");
+    }
+  }, [adopt, request]);
+  useEffect(() => {
+    let mounted = true;
+    queueMicrotask(() => {
+      if (mounted) void refresh();
+    });
+    const tick = setInterval(() => setNow(Date.now() + offset.current), 1000);
+    const poll = setInterval(() => {
+      if (!lock.current) void refresh();
+    }, 5000);
+    return () => {
+      mounted = false;
+      clearInterval(tick);
+      clearInterval(poll);
+    };
+  }, [refresh]);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 6500);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  useEffect(() => {
+    main.current?.focus();
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [view]);
+  async function act(action, payload = {}, message) {
+    if (lock.current) return null;
+    lock.current = true;
+    setBusy(true);
+    requestVersion.current++;
+    try {
+      const r = await request("/api/action", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": crypto.randomUUID(),
+        },
+        body: JSON.stringify({ action, payload }),
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        if (r.status === 401) setAuth(true);
+        throw Error(data.error?.message || "Unable to save this demo action.");
+      }
+      adopt(data.state);
+      if (message) setToast(message);
+      return data;
+    } catch (error) {
+      setToast(error.message);
+      await refresh();
+      return null;
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  }
+  const inProgress = s?.bookings.find((b) => !isTerminal(b.status));
+  const active = s?.bookings.find((b) => b.id === activeId) || inProgress;
+  const navigate = (next) => {
+    setView(next);
+    setModal(null);
+  };
+  const openFlow = (booking) => {
+    setActiveId(booking.id);
+    navigate("session");
+  };
+  const onFavorite = (host) => {
+    if (!s) {
+      setModal({ type: "signin" });
+      return;
+    }
+    act("favorite", { hostId: host.id });
+  };
+  const onOpen = (host) => setModal({ type: "profile", host, preferences });
+  const onStart = () => {
+    setStep(0);
+    setMatchError("");
+    navigate("moment");
+  };
+  const chooseExperience = (experience) => {
+    setPreferences({ ...preferences, experience, style: null });
+    setStep(1);
+    setMatchError("");
+    navigate("moment");
+  };
+  const browse = (withPreferences = false) => {
+    setFilters(
+      withPreferences
+        ? {
+            experience: preferences.experience,
+            format: preferences.format,
+            language: preferences.language,
+            query: "",
+          }
+        : defaultFilters,
+    );
+    navigate("browse");
+  };
+  async function match(consent) {
+    if (!s) {
+      setModal({ type: "signin" });
+      return;
+    }
+    const ranked = rankMatches(s, preferences);
+    if (!ranked.matches.length) {
+      setMatchError(ranked.reason);
+      return;
+    }
+    if (!s.eligible) {
+      if (!consent) {
+        setModal({ type: "eligibility" });
+        return;
+      }
+      if (!(await act("eligibility", consent))) return;
+    }
+    const response = await act("match", preferences);
+    if (response) {
+      setMatchError("");
+      openFlow(
+        response.state.bookings.find((b) => b.id === response.result.bookingId),
+      );
+    } else {
+      setModal(null);
+      setMatchError(
+        "That match could not be reserved. Your choices are saved. Check availability and try again.",
+      );
+    }
+  }
+  const isAvailable = (host) => hostAvailable(s, host);
+  return (
+    <div className="app-shell">
+      <a href="#main" className="skip">
+        Skip to content
+      </a>
+      <header className="site-header">
+        <button
+          className="brand"
+          onClick={() => navigate("discover")}
+          aria-label="Human Connection home"
+        >
+          <span className="brand-mark">
+            <Mark />
+          </span>
+          <span>
+            human
+            <br />
+            connection<span className="brand-dot">.</span>
+          </span>
+        </button>
+        <nav className="desktop-nav" aria-label="Main navigation">
+          <button
+            className={
+              ["discover", "moment", "browse"].includes(view) ? "active" : ""
+            }
+            onClick={onStart}
+          >
+            Find a moment
+          </button>
+          <button
+            className={view === "saved" ? "active" : ""}
+            onClick={() => {
+              setFilters(defaultFilters);
+              navigate("saved");
+            }}
+          >
+            <Heart size={16} />
+            Saved hosts
+          </button>
+          <button
+            className={view === "history" ? "active" : ""}
+            onClick={() => navigate("history")}
+          >
+            <Clock size={16} />
+            My sessions
+          </button>
+        </nav>
+        <div className="header-actions">
+          <button
+            className="tools-link"
+            onClick={() => setModal({ type: "tools" })}
+          >
+            Demo tools
+          </button>
+          <button
+            className="icon-btn"
+            aria-label="Notifications"
+            onClick={() => setModal({ type: "notifications" })}
+          >
+            <Bell size={19} />
+          </button>
+          <button
+            className="icon-btn account-icon"
+            aria-label="Your demo account"
+            onClick={() => setModal({ type: "account" })}
+          >
+            <Settings size={19} />
+          </button>
+          <button
+            className="icon-btn mobile-menu"
+            aria-label="Open menu"
+            onClick={() => setModal({ type: "menu" })}
+          >
+            <Menu size={22} />
+          </button>
+        </div>
+      </header>
+      <div className="public-preview-note">
+        <span className="demo-chip">
+          <i />
+          {browserDemo ? "PUBLIC DEMO" : "PRIVATE DEMO"}
+        </span>
+        <span>
+          Fictional hosts. No real calls or charges.{" "}
+          {browserDemo
+            ? "Activity stays in this tab."
+            : "Activity stays in your signed-in workspace."}
+        </span>
+        <button onClick={() => setModal({ type: "terms" })}>
+          How it works
+        </button>
+      </div>
+      <main id="main" ref={main} tabIndex={-1}>
+        {loadError && (
+          <div className="notice error" role="alert">
+            <AlertCircle size={18} />
+            {loadError}
+            <button onClick={refresh}>Retry</button>
+          </div>
+        )}
+        {auth && <SignIn />}
+        {s?.closed ? (
+          <Empty
+            icon={Lock}
+            title="Your demo account is closed"
+            action={
+              <button
+                className="primary"
+                onClick={() =>
+                  act("reset", {}, "A fresh demo workspace is ready.")
+                }
+              >
+                Start a fresh demo
+              </button>
+            }
+          >
+            Profile content has been removed. Demo financial records remain
+            until you reset this workspace.
+          </Empty>
+        ) : (
+          <>
+            {view !== "session" && inProgress && (
+              <button
+                className="resume-banner"
+                onClick={() => openFlow(inProgress)}
+              >
+                <Radio size={18} />
+                <span>
+                  Your moment with{" "}
+                  {hosts.find((h) => h.id === inProgress.hostId)?.name} ·{" "}
+                  {human(inProgress.status)}
+                </span>
+                <strong>
+                  Continue <ArrowRight size={16} />
+                </strong>
+              </button>
+            )}
+            {view === "discover" && (
+              <Landing
+                onStart={onStart}
+                onChoose={chooseExperience}
+                onBrowse={() => browse()}
+                onHelp={() => setModal({ type: "help" })}
+              />
+            )}
+            {view === "moment" && (
+              <MomentFinder
+                preferences={preferences}
+                onChange={(value) => {
+                  setPreferences(value);
+                  setMatchError("");
+                }}
+                step={step}
+                setStep={setStep}
+                onHome={() => navigate("discover")}
+                onBrowse={() => browse(true)}
+                onMatch={() => match()}
+                busy={busy}
+                error={matchError}
+              />
+            )}
+            {(view === "browse" || view === "saved") && (
+              <HostBrowser
+                s={s}
+                saved={view === "saved"}
+                filters={filters}
+                setFilters={setFilters}
+                onOpen={onOpen}
+                onFavorite={onFavorite}
+                onBack={() => navigate("moment")}
+                onClear={() => browse()}
+              />
+            )}
+            {view === "history" && (
+              <SessionHistory
+                s={s}
+                onStart={onStart}
+                openFlow={openFlow}
+                setModal={setModal}
+              />
+            )}
+            {view === "session" &&
+              (active ? (
+                <SessionFlow
+                  key={active.id}
+                  b={active}
+                  s={s}
+                  now={now}
+                  busy={busy}
+                  act={act}
+                  setModal={setModal}
+                  navigate={navigate}
+                />
+              ) : (
+                <Empty
+                  title="A little connection starts here"
+                  action={
+                    <button className="primary" onClick={onStart}>
+                      Find My Moment
+                    </button>
+                  }
+                >
+                  Choose an experience to start the demo.
+                </Empty>
+              ))}
+            {view === "host" && (
+              <HostStudio
+                s={s}
+                now={now}
+                act={act}
+                busy={busy}
+                setModal={setModal}
+              />
+            )}
+            {view === "ops" && (
+              <>
+                <PageHeading
+                  eyebrow="OPERATIONS · FICTIONAL ROLE PREVIEW"
+                  title="Care behind every conversation."
+                >
+                  Try safety, refund and finance controls within your own
+                  workspace. These are not production permissions or staffed
+                  services.
+                </PageHeading>
+                <div
+                  className="ops-tabs"
+                  role="group"
+                  aria-label="Operations sections"
+                >
+                  {[
+                    "overview",
+                    "safety",
+                    "refunds",
+                    "ledger",
+                    "applications",
+                  ].map((tab) => (
+                    <button
+                      key={tab}
+                      className={opsTab === tab ? "active" : ""}
+                      aria-pressed={opsTab === tab}
+                      onClick={() => setOpsTab(tab)}
+                    >
+                      {human(tab)}
+                    </button>
+                  ))}
+                </div>
+                {s ? (
+                  <Operations
+                    s={s}
+                    tab={opsTab}
+                    act={act}
+                    busy={busy}
+                    setModal={setModal}
+                  />
+                ) : (
+                  <SignIn />
+                )}
+              </>
+            )}
+          </>
+        )}
+        <footer className="page-footer">
+          <span>Human connection, on your terms.</span>
+          <span>
+            Adults 18+ · Platonic entertainment · No routine recording
+          </span>
+          <button onClick={() => setModal({ type: "help" })}>
+            Help & safety <ArrowUpRight size={15} />
+          </button>
+        </footer>
+      </main>
+      {toast && (
+        <div className="toast" role="status">
+          <CheckCircle2 size={18} />
+          <span>{toast}</span>
+          <button
+            aria-label="Dismiss notification"
+            onClick={() => setToast("")}
+          >
+            <X size={18} />
+          </button>
+        </div>
+      )}
+      {["tools", "menu"].includes(modal?.type) ? (
+        <Modal
+          title={
+            modal.type === "menu" ? "Your little space" : "Explore the demo"
+          }
+          close={() => setModal(null)}
+        >
+          <nav className="menu-links" aria-label="Demo navigation">
+            {modal.type === "menu" && (
+              <>
+                <button onClick={onStart}>
+                  Find My Moment <ArrowRight size={17} />
+                </button>
+                <button onClick={() => browse()}>Explore hosts</button>
+                <button
+                  onClick={() => {
+                    setFilters(defaultFilters);
+                    navigate("saved");
+                  }}
+                >
+                  Saved hosts
+                </button>
+                <button onClick={() => navigate("history")}>My sessions</button>
+                <button onClick={() => setModal({ type: "account" })}>
+                  Your demo account
+                </button>
+              </>
+            )}
+            <button onClick={() => navigate("host")}>
+              Host studio preview <ArrowUpRight size={17} />
+            </button>
+            <button onClick={() => navigate("ops")}>
+              Operations preview <ArrowUpRight size={17} />
+            </button>
+            <button onClick={() => setModal({ type: "help" })}>
+              Help & safety
+            </button>
+            <p className="demo-caption">
+              One fictional workspace, with all role previews. Real customer,
+              host and administrator access would be separate.
+            </p>
+          </nav>
+        </Modal>
+      ) : modal?.type === "eligibility" ? (
+        <EligibilityDialog
+          close={() => setModal(null)}
+          busy={busy}
+          onReady={match}
+        />
+      ) : (
+        modal && (
+          <AppModal
+            key={`${modal.type}-${modal.host?.id || modal.title || modal.booking?.id || ""}`}
+            modal={modal}
+            setModal={setModal}
+            s={s}
+            busy={busy}
+            act={act}
+            onFavorite={onFavorite}
+            isAvailable={isAvailable}
+            openFlow={openFlow}
+            navigate={navigate}
+          />
+        )
+      )}
+    </div>
+  );
 }

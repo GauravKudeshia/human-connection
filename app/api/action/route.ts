@@ -1,2 +1,54 @@
-import {mutate,errorResponse} from '../../../lib/store';
-export async function POST(request:Request){try{const origin=request.headers.get('origin');if(!origin||origin!==new URL(request.url).origin)return Response.json({error:{message:'Request origin is not permitted.'}},{status:403});if(!request.headers.get('content-type')?.startsWith('application/json'))return Response.json({error:{message:'JSON is required.'}},{status:415});const raw=await request.text();if(raw.length>12000)return Response.json({error:{message:'Request is too large.'}},{status:413});let body;try{body=JSON.parse(raw);}catch{return Response.json({error:{message:'Invalid JSON.'}},{status:400});}if(typeof body.action!=='string'||!body.payload||typeof body.payload!=='object'||Array.isArray(body.payload))return Response.json({error:{message:'Invalid request.'}},{status:400});return Response.json(await mutate(body.action,body.payload,request.headers.get('idempotency-key')||''),{headers:{'Cache-Control':'no-store'}});}catch(error){return errorResponse(error);}}
+import { mutate, errorResponse } from "../../../lib/store";
+export async function POST(request: Request) {
+  try {
+    const origin = request.headers.get("origin");
+    if (!origin || origin !== new URL(request.url).origin)
+      return Response.json(
+        { error: { message: "Request origin is not permitted." } },
+        { status: 403 },
+      );
+    if (!request.headers.get("content-type")?.startsWith("application/json"))
+      return Response.json(
+        { error: { message: "JSON is required." } },
+        { status: 415 },
+      );
+    const raw = await request.text();
+    if (raw.length > 12000)
+      return Response.json(
+        { error: { message: "Request is too large." } },
+        { status: 413 },
+      );
+    let body;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      return Response.json(
+        { error: { message: "Invalid JSON." } },
+        { status: 400 },
+      );
+    }
+    if (
+      !body ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      typeof body.action !== "string" ||
+      !body.payload ||
+      typeof body.payload !== "object" ||
+      Array.isArray(body.payload)
+    )
+      return Response.json(
+        { error: { message: "Invalid request." } },
+        { status: 400 },
+      );
+    return Response.json(
+      await mutate(
+        body.action,
+        body.payload,
+        request.headers.get("idempotency-key") || "",
+      ),
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
