@@ -4,13 +4,9 @@ import {
   X,
   MessageCircle,
   Lock,
-  Smile,
-  Headphones,
-  Sparkles,
 } from "lucide-react";
 import { experiences } from "../../lib/catalog.mjs";
 import { browserDemo } from "../../lib/presentation.mjs";
-export const expIcon = { laugh: Smile, hear: Headphones, distract: Sparkles };
 export const expName = (id) => experiences.find((e) => e.id === id)?.name;
 export const human = (s) =>
   s

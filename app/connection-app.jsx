@@ -169,9 +169,9 @@ export default function ConnectionApp({ request = fetch } = {}) {
     setMatchError("");
     navigate("moment");
   };
-  const chooseExperience = (experience) => {
-    setPreferences({ ...preferences, experience, style: null });
-    setStep(1);
+  const chooseExperience = (experience, style = null) => {
+    setPreferences({ ...preferences, experience, style });
+    setStep(style ? 2 : 1);
     setMatchError("");
     navigate("moment");
   };

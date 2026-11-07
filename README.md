@@ -4,6 +4,8 @@
 
 Choose **Make Me Laugh**, **Hear Me Out**, or **Distract Me** and meet a fictional host for a simulated 15- or 30-minute session. Anyone with the demo link can try it without an account, installation, or payment card.
 
+The homepage opens with three selectable photo scenes. You can also try a sample conversation starter and take its style into demo matching. [Homepage design audit](docs/HOMEPAGE-DESIGN-AUDIT.md)
+
 ## V1.3: find your moment
 
 1. Choose an experience and an optional conversation style.

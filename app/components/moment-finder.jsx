@@ -3,7 +3,7 @@ import React, { useRef, useEffect } from "react";
 import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
 import { stylesFor, styleName, money } from "../../lib/catalog.mjs";
 import { priceFor } from "../../lib/demo-policy.mjs";
-import { ExperienceChoices } from "./landing";
+import ExperienceBoard from "./experience-board";
 import { SessionOptions } from "./booking-options";
 import { expName } from "./shared";
 export default function MomentFinder({
@@ -62,7 +62,7 @@ export default function MomentFinder({
         </p>
       </div>
       {step === 0 && (
-        <ExperienceChoices
+        <ExperienceBoard
           selected={preferences.experience}
           onChoose={(experience) => {
             onChange({ ...preferences, experience, style: null });

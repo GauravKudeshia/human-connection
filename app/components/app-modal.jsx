@@ -149,7 +149,8 @@ export default function AppModal({
             hours, with a $1–$50 range. No real funds move.
           </p>
           <p>
-            Stock photos illustrate fictional profiles. Live payments, real host
+            AI-generated scenes illustrate the experience choices. Stock photos
+            illustrate fictional host profiles. Live payments, real host
             verification, live video, and staffed safety response require
             production integrations and approvals. No service hours are
             advertised until then.

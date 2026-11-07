@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { hosts } from "../lib/catalog.mjs";
+import { hosts, experiences } from "../lib/catalog.mjs";
 const root = new URL("../", import.meta.url);
 const file = (p) => new URL(p, root);
 const portraits = Object.fromEntries(
@@ -11,6 +11,19 @@ const portraits = Object.fromEntries(
       "data:image/jpeg;base64," +
         (await readFile(file(`public/hosts/${h.id}.jpg`))).toString("base64"),
     ]),
+  ),
+);
+const moments = Object.fromEntries(
+  await Promise.all(
+    [...experiences.map((experience) => experience.id), "cards"].map(
+      async (id) => [
+        id,
+        "data:image/webp;base64," +
+          (await readFile(file(`public/moments/${id}.webp`))).toString(
+            "base64",
+          ),
+      ],
+    ),
   ),
 );
 const { outputFiles } = await build({
@@ -25,6 +38,7 @@ const { outputFiles } = await build({
   define: {
     "process.env.NODE_ENV": '"production"',
     __HC_PORTRAITS__: JSON.stringify(portraits),
+    __HC_MOMENTS__: JSON.stringify(moments),
   },
   legalComments: "eof",
 });
