@@ -16,6 +16,8 @@ The homepage opens with three selectable photo scenes. You can also try a sample
 
 See [feature audit](docs/V1.3-FEATURE-AUDIT.md), [product experience](docs/V1.3-PRODUCT-EXPERIENCE.md), [engineering changes and tests](docs/V1.3-ENGINEERING-CHANGES.md), and [production gaps](docs/V1.3-PRODUCTION-GAPS.md).
 
+The [November 12 audit fixes](docs/AUDIT-FIXES-2026-11-12.md) cover booking preferences, review completion, decision history, authentication expiry, reset retries, storage recovery and updated dependencies.
+
 The public preview runs entirely in your browser. Activity survives reloading the same tab when session storage is available. It does not sync to another device or another visitor. Use fictional details only. Reports do not notify a real person; no payments, microphone capture, camera access or live calls occur in the public demo.
 
 You can also download `docs/index.html` and open it directly in a current browser. The interface, portraits and scripts are embedded; external fonts are optional.

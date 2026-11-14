@@ -13,6 +13,8 @@ export default function MomentFinder({
   setStep,
   onHome,
   onBrowse,
+  onAdjust,
+  onBrowseAlternatives,
   onMatch,
   busy,
   error,
@@ -152,11 +154,11 @@ export default function MomentFinder({
         <div className="matching-empty" role="status">
           <h2>A different moment might fit.</h2>
           <p>{error}</p>
-          <button className="secondary" onClick={() => setStep(2)}>
+          <button className="secondary" onClick={onAdjust}>
             Adjust my choices
           </button>
-          <button className="text-btn" onClick={onBrowse}>
-            Explore hosts
+          <button className="text-btn" onClick={onBrowseAlternatives}>
+            See other experiences in {preferences.language}
           </button>
         </div>
       )}

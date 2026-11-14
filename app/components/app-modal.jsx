@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { hosts } from "../../lib/catalog.mjs";
 import { browserDemo } from "../../lib/presentation.mjs";
+import { hasPendingReviews } from "../../lib/demo-policy.mjs";
 import { Modal, Empty, SignIn, human } from "./shared";
 import ProfileDialog from "./profile-dialog";
 import ReceiptPanel from "./receipt-panel";
@@ -220,11 +221,24 @@ export default function AppModal({
                 {browserDemo
                   ? "Your demo activity is stored in this tab only."
                   : "Your prototype activity is saved on the server."}{" "}
-                Closing your account removes profile content and prevents new
-                sessions; demo financial records are retained until you reset.
+                Closing your account removes profile content after active
+                sessions and open reviews are resolved. Demo financial records
+                are retained until you reset.
               </p>
+              {hasPendingReviews(s) && (
+                <div className="notice" role="status">
+                  <span>
+                    Resolve your open safety cases and refund reviews before
+                    closing this demo account.
+                  </span>
+                  <button className="secondary" onClick={() => navigate("ops")}>
+                    Review open cases
+                  </button>
+                </div>
+              )}
               <button
                 className="secondary full"
+                disabled={busy || hasPendingReviews(s)}
                 onClick={() =>
                   setModal({
                     type: "reason",

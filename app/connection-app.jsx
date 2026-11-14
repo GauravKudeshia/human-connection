@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { hosts } from "../lib/catalog.mjs";
 import { browserDemo } from "../lib/presentation.mjs";
-import { isTerminal } from "../lib/demo-policy.mjs";
+import { isTerminal, hasPendingReviews } from "../lib/demo-policy.mjs";
 import { hostAvailable, rankMatches } from "../lib/matching.mjs";
 import {
   Mark,
@@ -72,16 +72,28 @@ export default function ConnectionApp({ request = fetch } = {}) {
     offset.current = data.serverNow - Date.now();
     setNow(data.serverNow);
   }, []);
+  const expireAuthentication = useCallback(() => {
+    requestVersion.current++;
+    setS(null);
+    setModal(null);
+    setActiveId(null);
+    setToast("");
+    setMatchError("");
+    setLoadError("");
+    setView("discover");
+    setAuth(true);
+  }, []);
   const refresh = useCallback(async () => {
     const version = ++requestVersion.current;
     try {
       const r = await request("/api/state");
-      const data = await r.json();
       if (version !== requestVersion.current) return;
       if (r.status === 401) {
-        setAuth(true);
+        expireAuthentication();
         return;
       }
+      const data = await r.json();
+      if (version !== requestVersion.current) return;
       if (!r.ok) throw Error(data.error?.message || "Unable to open the demo.");
       adopt(data);
       setAuth(false);
@@ -90,7 +102,7 @@ export default function ConnectionApp({ request = fetch } = {}) {
       if (version === requestVersion.current)
         setLoadError(error.message || "Unable to open your workspace.");
     }
-  }, [adopt, request]);
+  }, [adopt, request, expireAuthentication]);
   useEffect(() => {
     let mounted = true;
     queueMicrotask(() => {
@@ -129,9 +141,12 @@ export default function ConnectionApp({ request = fetch } = {}) {
         },
         body: JSON.stringify({ action, payload }),
       });
+      if (r.status === 401) {
+        expireAuthentication();
+        return null;
+      }
       const data = await r.json();
       if (!r.ok) {
-        if (r.status === 401) setAuth(true);
         throw Error(data.error?.message || "Unable to save this demo action.");
       }
       adopt(data.state);
@@ -163,7 +178,21 @@ export default function ConnectionApp({ request = fetch } = {}) {
     }
     act("favorite", { hostId: host.id });
   };
-  const onOpen = (host) => setModal({ type: "profile", host, preferences });
+  const onOpen = (host) =>
+    setModal({
+      type: "profile",
+      host,
+      preferences: {
+        ...preferences,
+        experience:
+          filters.experience === "all"
+            ? preferences.experience
+            : filters.experience,
+        format: filters.format === "any" ? preferences.format : filters.format,
+        language:
+          filters.language === "any" ? preferences.language : filters.language,
+      },
+    });
   const onStart = () => {
     setStep(0);
     setMatchError("");
@@ -319,25 +348,79 @@ export default function ConnectionApp({ request = fetch } = {}) {
             <button onClick={refresh}>Retry</button>
           </div>
         )}
-        {auth && <SignIn />}
-        {s?.closed ? (
-          <Empty
-            icon={Lock}
-            title="Your demo account is closed"
-            action={
-              <button
-                className="primary"
-                onClick={() =>
-                  act("reset", {}, "A fresh demo workspace is ready.")
-                }
-              >
-                Start a fresh demo
-              </button>
-            }
-          >
-            Profile content has been removed. Demo financial records remain
-            until you reset this workspace.
-          </Empty>
+        {s?.storageStatus === "blocked" && (
+          <div className="notice error" role="alert">
+            <span>
+              This tab could not save your latest change. Continue temporarily,
+              then try the change again. Temporary activity will be lost when
+              you reload.
+            </span>
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() =>
+                act(
+                  "continue-in-memory",
+                  {},
+                  "Temporary mode is ready. Please try your last change again.",
+                )
+              }
+            >
+              Continue in this tab
+            </button>
+          </div>
+        )}
+        {s?.storageStatus === "temporary" && (
+          <p className="notice" role="status">
+            Temporary mode. Your activity will be lost when this page reloads or
+            closes.
+          </p>
+        )}
+        {auth ? (
+          <SignIn />
+        ) : s?.closed ? (
+          <>
+            <Empty
+              icon={Lock}
+              title="Your demo account is closed"
+              action={
+                <button
+                  className="primary"
+                  onClick={() =>
+                    act("reset", {}, "A fresh demo workspace is ready.")
+                  }
+                >
+                  Start a fresh demo
+                </button>
+              }
+            >
+              Profile content has been removed. Demo financial records remain
+              until you reset this workspace.
+            </Empty>
+            {hasPendingReviews(s) && (
+              <section aria-label="Outstanding reviews">
+                <h2>Finish your outstanding reviews</h2>
+                <p>
+                  This older workspace closed with unfinished reviews. Resolve
+                  them here to complete removal of profile content.
+                </p>
+                <Operations
+                  s={s}
+                  tab="safety"
+                  act={act}
+                  busy={busy}
+                  setModal={setModal}
+                />
+                <Operations
+                  s={s}
+                  tab="refunds"
+                  act={act}
+                  busy={busy}
+                  setModal={setModal}
+                />
+              </section>
+            )}
+          </>
         ) : (
           <>
             {view !== "session" && inProgress && (
@@ -375,6 +458,18 @@ export default function ConnectionApp({ request = fetch } = {}) {
                 setStep={setStep}
                 onHome={() => navigate("discover")}
                 onBrowse={() => browse(true)}
+                onAdjust={() => {
+                  setMatchError("");
+                  setStep(0);
+                }}
+                onBrowseAlternatives={() => {
+                  setFilters({
+                    ...defaultFilters,
+                    format: preferences.format,
+                    language: preferences.language,
+                  });
+                  navigate("browse");
+                }}
                 onMatch={() => match()}
                 busy={busy}
                 error={matchError}

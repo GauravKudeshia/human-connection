@@ -385,6 +385,12 @@ main:focus {
 .notice > svg {
   margin-top: 3px;
 }
+.notice > span {
+  flex: 1 1 180px;
+}
+.notice:has(> button) {
+  flex-wrap: wrap;
+}
 .notice button,
 .notice a {
   margin-left: auto;
@@ -2076,6 +2082,19 @@ dd {
   font-size: 12px;
   color: var(--muted);
   line-height: 1.7;
+}
+.decision-history {
+  margin: 16px 0;
+}
+.decision-history summary {
+  cursor: pointer;
+}
+.decision-history li {
+  padding: 10px 0;
+}
+.decision-history small {
+  display: block;
+  margin-top: 5px;
 }
 .journal {
   padding: 22px 0;

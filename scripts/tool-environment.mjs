@@ -12,6 +12,7 @@ export function configureToolEnvironment(projectRoot) {
     WRANGLER_LOG_PATH: path.join(runtimeRoot, "wrangler/logs"),
     WRANGLER_REGISTRY_PATH: path.join(runtimeRoot, "wrangler/dev-registry"),
     MINIFLARE_REGISTRY_PATH: path.join(runtimeRoot, "wrangler/registry"),
+    CLOUDFLARE_DEV_REGISTRY_PATH: path.join(runtimeRoot, "cloudflare/dev-registry"),
   };
   for (const [name, value] of Object.entries(defaults)) {
     process.env[name] ??= value;

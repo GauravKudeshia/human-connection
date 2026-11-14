@@ -151,6 +151,59 @@ test("HTTP integration: auth, CSRF, concurrency, persistence and financial lifec
     await fetch(base + "/api/state", { headers: { Cookie: cookie } })
   ).json();
   assert.deepEqual(state.favorites, ["maya"]);
+  const resetKey = crypto.randomUUID();
+  assert.equal((await action("reset", {}, resetKey)).status, 200);
+  await action("favorite", { hostId: "james" });
+  state = await (await action("reset", {}, resetKey)).json();
+  assert.deepEqual(state.state.favorites, ["james"]);
+  assert.equal(state.state.resetRequests, undefined);
+  await action("eligibility", { adult: true, us: true, terms: true });
+  const interrupted = await (await action("hold", payload)).json();
+  const bookingId = interrupted.result.bookingId;
+  for (const transition of ["accept", "checkout", "join"])
+    assert.equal((await action(transition, { bookingId })).status, 200);
+  state = await (
+    await action("report", {
+      hostId: "maya",
+      bookingId,
+      urgent: true,
+      reason: "Fictional HTTP review",
+    })
+  ).json();
+  const caseId = state.result.caseId;
+  const refundId = state.state.refunds[0].id;
+  assert.equal((await action("close-account")).status, 409);
+  await action("case-action", {
+    caseId,
+    status: "ASSIGNED",
+    reason: "Assignment explanation",
+  });
+  await action("refund-resolve", { refundId, reason: "Refund explanation" });
+  state = await (
+    await action("case-action", {
+      caseId,
+      status: "CLOSED",
+      reason: "Closure explanation",
+    })
+  ).json();
+  assert.equal(
+    state.state.audit.filter(
+      (event) => event.subjectId === caseId && event.decision,
+    ).length,
+    2,
+  );
+  assert.equal(state.state.bookings[0].payment, "SIMULATED_REFUNDED");
+  assert.equal((await action("close-account")).status, 200);
+  state = await (
+    await fetch(base + "/api/state", { headers: { Cookie: cookie } })
+  ).json();
+  assert.equal(JSON.stringify(state).includes("Assignment explanation"), false);
+  assert.equal(state.closed, true);
+  for (const entry of state.journals)
+    assert.equal(
+      entry.lines.reduce((sum, line) => sum + line.debit - line.credit, 0),
+      0,
+    );
   console.log(
     "Verified malformed/oversized request rejection, READY deadline, delivered rating gate, report relationship, activity persistence, disabled production capabilities, 401 auth, 403 CSRF, atomic concurrent reservation, idempotent checkout, one logical tip, balanced journals, durable favorites.",
   );

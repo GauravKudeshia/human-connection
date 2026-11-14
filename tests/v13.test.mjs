@@ -514,6 +514,11 @@ test("replay digests match standard SHA-256 and do not retain raw report narrati
     "report",
   );
   assert.equal(r.s.reports.length, 1);
+  r.run("case-action", {
+    caseId: r.s.reports[0].id,
+    status: "CLOSED",
+    reason: "Reviewed the fictional narrative",
+  });
   r.run("close-account");
   assert.equal(
     JSON.stringify(r.s).includes("Private fictional narrative"),
@@ -572,5 +577,168 @@ test("host application preview preserves review gates and never creates a real h
         reason: "Bypass",
       }),
     /valid decision/,
+  );
+});
+
+test("closure waits for both reviews, then redacts explanations while preserving decisions and balanced refunds", () => {
+  const r = runner();
+  const bookingId = paid(r);
+  r.run("join", { bookingId });
+  r.run(
+    "report",
+    {
+      hostId: "maya",
+      bookingId,
+      urgent: true,
+      reason: "Fictional safety concern",
+    },
+    start + 10_000,
+  );
+  const caseId = r.s.reports[0].id;
+  const refundId = r.s.refunds[0].id;
+  assert.equal(r.s.bookings[0].overlapSeconds, 10);
+  assert.throws(
+    () => r.run("close-account"),
+    /open safety cases and refund reviews/,
+  );
+  assert.equal(r.s.reports[0].reason, "Fictional safety concern");
+  r.run("case-action", {
+    caseId,
+    status: "ASSIGNED",
+    reason: "First review explanation",
+  });
+  r.run("case-action", {
+    caseId,
+    status: "ESCALATED",
+    reason: "Escalation explanation",
+  });
+  const decisions = r.s.audit.filter(
+    (event) => event.subjectId === caseId && event.decision,
+  );
+  assert.deepEqual(
+    decisions.map((event) => event.decision),
+    ["ESCALATED", "ASSIGNED"],
+  );
+  assert.equal(decisions[1].reason, "First review explanation");
+  r.run("refund-resolve", { refundId, reason: "Refund explanation" });
+  assert.equal(receiptFor(r.s.bookings[0]).net, 0);
+  assert.throws(
+    () => r.run("close-account"),
+    /open safety cases and refund reviews/,
+  );
+  r.run("case-action", {
+    caseId,
+    status: "CLOSED",
+    reason: "Final explanation",
+  });
+  r.run("close-account");
+  assert.equal(r.s.closed, true);
+  assert.ok(
+    r.s.audit.some(
+      (event) => event.subjectId === refundId && event.decision === "REFUNDED",
+    ),
+  );
+  for (const text of [
+    "Fictional safety concern",
+    "First review explanation",
+    "Refund explanation",
+    "Final explanation",
+  ])
+    assert.equal(JSON.stringify(r.s).includes(text), false);
+  assert.ok(
+    r.s.audit.find((event) => event.decision === "CLOSED").reasonRemovedAt,
+  );
+  balanced(r.s);
+});
+test("legacy closed workspaces can resolve existing reviews and retry after final redaction", () => {
+  const r = runner();
+  const bookingId = paid(r);
+  r.run("join", { bookingId });
+  r.run(
+    "report",
+    {
+      hostId: "maya",
+      bookingId,
+      urgent: true,
+      reason: "Legacy fictional case",
+    },
+    start + 10_000,
+  );
+  // Recreate a schema-1 workspace that the earlier release allowed to close.
+  r.s.closed = true;
+  delete r.s.resetRequests;
+  const refund = {
+    refundId: r.s.refunds[0].id,
+    reason: "Legacy refund decision",
+  };
+  assert.throws(() => r.run("favorite", { hostId: "maya" }), /closed/);
+  r.run("refund-resolve", refund, start + 11_000, "legacy-refund");
+  r.run("case-action", {
+    caseId: r.s.reports[0].id,
+    status: "CLOSED",
+    reason: "Legacy final decision",
+  });
+  r.run("refund-resolve", refund, start + 12_000, "legacy-refund");
+  assert.equal(r.s.closed, true);
+  assert.equal(receiptFor(r.s.bookings[0]).net, 0);
+  assert.equal(
+    r.s.journals.filter((entry) => entry.event === "refund:" + bookingId)
+      .length,
+    1,
+  );
+  assert.equal(JSON.stringify(r.s).includes("Legacy final decision"), false);
+});
+test("a reset key survives reload, subsequent resets and account closure without erasing new activity", () => {
+  let state = initialState();
+  const run = (action, payload, key) => {
+    const response = applyAction(
+      JSON.parse(JSON.stringify(state)),
+      action,
+      payload,
+      key,
+      start,
+    );
+    state = response.state;
+    return response;
+  };
+  run("reset", {}, "first-reset");
+  run("reset", {}, "second-reset");
+  run("favorite", { hostId: "maya" }, "favorite");
+  assert.equal(run("reset", {}, "first-reset").replayed, true);
+  assert.deepEqual(state.favorites, ["maya"]);
+  assert.equal(run("reset", {}, "second-reset").replayed, true);
+  run("close-account", {}, "close");
+  assert.equal(run("reset", {}, "first-reset").replayed, true);
+  assert.equal(state.closed, true);
+  assert.equal(summarize(state).resetRequests, undefined);
+  assert.throws(
+    () => run("favorite", { hostId: "james" }, "first-reset"),
+    /different action/,
+  );
+});
+test("application decisions have a subject and can be delivered again without changing a completed review", () => {
+  const r = runner();
+  const { applicationId } = r.run("apply", {
+    adult: true,
+    name: "Fictional tester",
+    bio: "Demo introduction",
+  });
+  const decision = {
+    applicationId,
+    status: "TRAINING_REQUIRED",
+    reason: "Practice the demo workflow",
+  };
+  r.run("application-decision", decision, start, "review");
+  r.run("application-decision", decision, start + 1, "review");
+  const events = r.s.audit.filter(
+    (event) => event.action === "application-decision",
+  );
+  assert.equal(events.length, 1);
+  assert.equal(events[0].subjectId, applicationId);
+  assert.equal(events[0].previousStatus, "PENDING_REVIEW");
+  assert.equal(events[0].reason, decision.reason);
+  assert.throws(
+    () => r.run("application-decision", { ...decision, status: "DECLINED" }),
+    /already been reviewed/,
   );
 });

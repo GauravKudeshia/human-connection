@@ -45,3 +45,107 @@ test("public preview lets a guest complete a demo checkout and tip with no backe
     0,
   );
 });
+
+test("a mid-session storage failure preserves the last saved workspace and requires explicit temporary recovery", async () => {
+  const backing = storage();
+  let failure = false;
+  const adapter = {
+    getItem: backing.getItem,
+    setItem: (key, value) => {
+      if (failure) throw new DOMException("Full", "QuotaExceededError");
+      backing.setItem(key, value);
+    },
+  };
+  const request = makeBrowserRequest(adapter, "recovery");
+  const send = (action, payload = {}, id = crypto.randomUUID()) =>
+    request("/api/action", {
+      method: "POST",
+      headers: { "Idempotency-Key": id },
+      body: JSON.stringify({ action, payload }),
+    });
+  assert.equal((await send("favorite", { hostId: "maya" })).status, 200);
+  failure = true;
+  const rejected = await send("favorite", { hostId: "maya" }, "toggle");
+  assert.equal(rejected.status, 507);
+  assert.equal((await rejected.json()).error.code, "STORAGE_UNAVAILABLE");
+  const blocked = await (await request("/api/state")).json();
+  assert.equal(blocked.storageStatus, "blocked");
+  assert.deepEqual(blocked.favorites, ["maya"]);
+  await send("continue-in-memory");
+  const result = await (
+    await send("favorite", { hostId: "maya" }, "toggle")
+  ).json();
+  assert.equal(result.state.storageStatus, "temporary");
+  assert.deepEqual(result.state.favorites, []);
+  assert.deepEqual(
+    (await (await send("favorite", { hostId: "maya" }, "toggle")).json()).state
+      .favorites,
+    [],
+  );
+  assert.deepEqual(
+    (await (await makeBrowserRequest(backing, "recovery")("/api/state")).json())
+      .favorites,
+    ["maya"],
+  );
+});
+test("storage reads denied after a successful save recover the acknowledged workspace", async () => {
+  const backing = storage();
+  let denied = false;
+  const request = makeBrowserRequest(
+    {
+      getItem: (key) => {
+        if (denied) throw new Error("Access denied");
+        return backing.getItem(key);
+      },
+      setItem: backing.setItem,
+    },
+    "denied",
+  );
+  const send = (action, payload = {}) =>
+    request("/api/action", {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify({ action, payload }),
+    });
+  await send("favorite", { hostId: "maya" });
+  denied = true;
+  const blocked = await (await request("/api/state")).json();
+  assert.deepEqual(blocked.favorites, ["maya"]);
+  assert.equal(blocked.storageStatus, "blocked");
+  await send("continue-in-memory");
+  assert.deepEqual(
+    (await (await send("favorite", { hostId: "james" })).json()).state
+      .favorites,
+    ["maya", "james"],
+  );
+});
+test("malformed saved state can be explicitly recovered without overwriting its stored contents", async () => {
+  const backing = storage();
+  backing.setItem("broken", "{");
+  const request = makeBrowserRequest(backing, "broken");
+  assert.equal(
+    (await (await request("/api/state")).json()).storageStatus,
+    "blocked",
+  );
+  const recovered = await request("/api/action", {
+    method: "POST",
+    body: JSON.stringify({ action: "continue-in-memory" }),
+  });
+  assert.equal((await recovered.json()).state.storageStatus, "temporary");
+  assert.equal(backing.getItem("broken"), "{");
+});
+test("reset redelivery after transport recreation preserves subsequent favorites", async () => {
+  const backing = storage();
+  let request = makeBrowserRequest(backing, "reset");
+  const send = (action, payload, key) =>
+    request("/api/action", {
+      method: "POST",
+      headers: { "Idempotency-Key": key },
+      body: JSON.stringify({ action, payload }),
+    });
+  await send("reset", {}, "reset-once");
+  await send("favorite", { hostId: "maya" }, "save-maya");
+  request = makeBrowserRequest(backing, "reset");
+  const replay = await (await send("reset", {}, "reset-once")).json();
+  assert.deepEqual(replay.state.favorites, ["maya"]);
+});

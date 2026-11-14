@@ -3,6 +3,28 @@ import React from "react";
 import { ShieldCheck, Lock, Receipt, Users, BookOpen } from "lucide-react";
 import { hosts, money } from "../../lib/catalog.mjs";
 import { Empty, human, date } from "./shared";
+function DecisionHistory({ events, subjectId }) {
+  const decisions = events.filter(
+    (event) => event.subjectId === subjectId && event.decision,
+  );
+  if (!decisions.length) return null;
+  return (
+    <details className="decision-history">
+      <summary>Decision history</summary>
+      <ol>
+        {decisions.map((event) => (
+          <li key={event.id}>
+            <strong>
+              {human(event.previousStatus)} → {human(event.decision)}
+            </strong>
+            <small>{date(event.createdAt)}</small>
+            <p>{event.reason || "Explanation removed on account closure."}</p>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
 export default function Operations({ s, tab, act, busy, setModal }) {
   return (
     <>
@@ -134,9 +156,10 @@ export default function Operations({ s, tab, act, busy, setModal }) {
                 <h3>{hosts.find((h) => h.id === r.hostId)?.name}</h3>
                 <p>{r.reason}</p>
                 {r.note && <p className="muted">Operator note: {r.note}</p>}
+                <DecisionHistory events={s.audit} subjectId={r.id} />
                 <div className="button-row">
                   {["ASSIGNED", "ESCALATED", "CLOSED"]
-                    .filter((x) => x !== r.status)
+                    .filter((x) => r.status !== "CLOSED" && x !== r.status)
                     .map((status) => (
                       <button
                         className="secondary"
@@ -182,6 +205,7 @@ export default function Operations({ s, tab, act, busy, setModal }) {
                     {money(b.totalCents)}
                   </h3>
                   <p>{r.reason}</p>
+                  <DecisionHistory events={s.audit} subjectId={r.id} />
                   {r.status === "OPEN" && (
                     <button
                       className="primary"
@@ -297,6 +321,7 @@ export default function Operations({ s, tab, act, busy, setModal }) {
                     ))}
                   </div>
                 )}
+                <DecisionHistory events={s.audit} subjectId={a.id} />
               </div>
             ))
           )}

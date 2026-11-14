@@ -15,9 +15,11 @@ if (managedLinux && command === "build") {
 }
 
 // Import in this process so the preview owner retains its PID and signals.
-const cli = new URL(managedLinux
+const cli = new URL(managedLinux || command === "dev"
   ? "../node_modules/vite/bin/vite.js"
   : "../node_modules/vinext/dist/cli.js", import.meta.url);
+// Keep the documented hostname flag working with Vite's dev CLI.
+const frameworkArgs = args.map((arg) => arg.replace(/^--hostname(?==|$)/, "--host"));
 process.argv = [process.execPath, fileURLToPath(cli), command,
-  ...(!managedLinux && command === "dev" ? ["--port", "5173"] : []), ...args];
+  ...(!managedLinux && command === "dev" ? ["--port", "5173"] : []), ...frameworkArgs];
 await import(cli.href);

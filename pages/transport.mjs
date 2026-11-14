@@ -8,27 +8,57 @@ import {
 // A visitor's sessionStorage is isolated by tab. No business data goes over the network.
 export function makeBrowserRequest(storage, key, clock = Date.now) {
   let memory = initialState();
+  let storageBlocked = false;
+  function storageError() {
+    const error = new Error(
+      "This tab could not save your change. Continue in temporary mode and try again.",
+    );
+    error.code = "STORAGE_UNAVAILABLE";
+    error.status = 507;
+    return error;
+  }
   function read() {
-    const raw = storage?.getItem(key);
-    if (!raw) return structuredClone(memory);
-    const state = JSON.parse(raw);
-    if (state.schema !== 1 || !Array.isArray(state.bookings))
-      throw new Error("Cannot read this demo session. Open a new tab.");
-    return state;
+    if (storageBlocked || !storage) return structuredClone(memory);
+    try {
+      const raw = storage.getItem(key);
+      if (raw) {
+        const state = JSON.parse(raw);
+        if (state.schema !== 1 || !Array.isArray(state.bookings))
+          throw new Error("Cannot read this demo session.");
+        memory = state;
+      }
+    } catch {
+      storageBlocked = true;
+    }
+    return structuredClone(memory);
   }
   function save(state) {
-    if (storage) storage.setItem(key, JSON.stringify(state));
-    memory = state;
+    if (storageBlocked) throw storageError();
+    try {
+      if (storage) storage.setItem(key, JSON.stringify(state));
+    } catch {
+      storageBlocked = true;
+      throw storageError();
+    }
+    memory = structuredClone(state);
   }
   function view(state) {
-    return { ...summarize(state, clock()), viewer: { name: "Demo guest" } };
+    return {
+      ...summarize(state, clock()),
+      viewer: { name: "Demo guest" },
+      storageStatus: storageBlocked
+        ? "blocked"
+        : storage
+          ? "saved"
+          : "temporary",
+    };
   }
   return async (path, options = {}) => {
     try {
       const current = read();
       const before = JSON.stringify(current);
       expire(current, clock());
-      if (JSON.stringify(current) !== before) save(current);
+      if (!storageBlocked && JSON.stringify(current) !== before) save(current);
       if (
         path === "/api/state" &&
         (!options.method || options.method === "GET")
@@ -47,6 +77,16 @@ export function makeBrowserRequest(storage, key, clock = Date.now) {
           { status: 400 },
         );
       const { action, payload } = body;
+      if (action === "continue-in-memory") {
+        storage = null;
+        storageBlocked = false;
+        save(current);
+        return Response.json({
+          state: view(current),
+          result: { storageRecovered: true },
+        });
+      }
+      if (storageBlocked) throw storageError();
       const { state, result } = applyAction(
         current,
         action,
