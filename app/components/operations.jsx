@@ -1,8 +1,75 @@
 "use client";
-import React from "react";
+import React, { useState } from "react";
 import { ShieldCheck, Lock, Receipt, Users, BookOpen } from "lucide-react";
 import { hosts, money } from "../../lib/catalog.mjs";
 import { Empty, human, date } from "./shared";
+import { valueFeedbackSummary } from "../../lib/engine.mjs";
+
+function ValueOverview({ bookings }) {
+  const [from, setFrom] = useState("");
+  const [through, setThrough] = useState("");
+  const fromTime = from ? Date.parse(from) : 0;
+  const untilTime = through ? Date.parse(through) + 86_400_000 : Infinity;
+  const invalidRange = untilTime <= fromTime;
+  const summary = valueFeedbackSummary(bookings, fromTime, untilTime);
+  return (
+    <section className="panel value-summary">
+      <h2>Did the moment feel worthwhile?</h2>
+      <p className="muted">
+        Responses from completed paid simulations in this workspace. Completion
+        dates use UTC.
+      </p>
+      <div className="value-date-filters">
+        <label className="field-label">
+          From date
+          <input
+            type="date"
+            value={from}
+            onChange={(event) => setFrom(event.target.value)}
+          />
+        </label>
+        <label className="field-label">
+          Through date
+          <input
+            type="date"
+            value={through}
+            onChange={(event) => setThrough(event.target.value)}
+          />
+        </label>
+      </div>
+      {invalidRange ? (
+        <p role="alert">Choose an end date on or after the start date.</p>
+      ) : (
+        <dl className="receipt-details">
+          <div>
+            <dt>Eligible completed simulations</dt>
+            <dd>{summary.eligible}</dd>
+          </div>
+          <div>
+            <dt>Value questions answered</dt>
+            <dd>
+              {summary.answered} of {summary.eligible}
+            </dd>
+          </div>
+          <div>
+            <dt>Answered yes</dt>
+            <dd>
+              {summary.yes} of {summary.answered} answers
+            </dd>
+          </div>
+          <div>
+            <dt>Skipped</dt>
+            <dd>{summary.skipped}</dd>
+          </div>
+        </dl>
+      )}
+      <p className="microcopy">
+        Skipped and unanswered questions stay outside the yes/no denominator.
+        These counts describe fictional demo activity.
+      </p>
+    </section>
+  );
+}
 function DecisionHistory({ events, subjectId }) {
   const decisions = events.filter(
     (event) => event.subjectId === subjectId && event.decision,
@@ -30,6 +97,7 @@ export default function Operations({ s, tab, act, busy, setModal }) {
     <>
       {tab === "overview" && (
         <>
+          <ValueOverview bookings={s.bookings} />
           <div className="stats-grid">
             {[
               [

@@ -35,6 +35,7 @@ function ReviewAndTip({ b, now, busy, act, navigate }) {
   const expired = now - b.endedAt >= 86400000;
   return (
     <>
+      <ValueAndQualityFeedback b={b} busy={busy} act={act} />
       <section className="review-panel">
         <h2>{b.rating ? "Your demo host review" : "Try a host review"}</h2>
         <p>
@@ -171,6 +172,116 @@ function ReviewAndTip({ b, now, busy, act, navigate }) {
     </>
   );
 }
+function ValueAndQualityFeedback({ b, busy, act }) {
+  const [answer, setAnswer] = useState(b.valueFeedback?.answer || "");
+  const [details, setDetails] = useState(b.valueFeedback?.details || "");
+  const [quality, setQuality] = useState(b.qualityFeedback?.text || "");
+  return (
+    <>
+      <section className="review-panel" aria-labelledby="value-question">
+        <h2 id="value-question">Was this experience worth what you paid?</h2>
+        <p>
+          Try the value question with fictional feedback about the proposed
+          experience and price. Your answer stays in this demo workspace.
+        </p>
+        <div
+          className="segmented"
+          role="group"
+          aria-label="Value of this demo experience"
+        >
+          {["yes", "no"].map((value) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={answer === value}
+              className={answer === value ? "active" : ""}
+              onClick={() => setAnswer(value)}
+            >
+              {value === "yes" ? "Yes" : "No"}
+            </button>
+          ))}
+        </div>
+        <label className="field-label">
+          Optional value feedback
+          <textarea
+            maxLength={1000}
+            value={details}
+            onChange={(event) => setDetails(event.target.value)}
+            placeholder="Use fictional details only."
+          />
+        </label>
+        <div className="button-row">
+          <button
+            className="secondary"
+            disabled={busy || !["yes", "no"].includes(answer)}
+            onClick={() =>
+              act(
+                "worth-it",
+                { bookingId: b.id, answer, details },
+                "Your demo value feedback is saved.",
+              )
+            }
+          >
+            Save value feedback
+          </button>
+          <button
+            className="text-btn"
+            disabled={busy}
+            onClick={async () => {
+              const result = await act(
+                "worth-it",
+                { bookingId: b.id, answer: "skipped" },
+                "Value question skipped.",
+              );
+              if (result) {
+                setAnswer("skipped");
+                setDetails("");
+              }
+            }}
+          >
+            Skip this question
+          </button>
+        </div>
+        {b.valueFeedback && (
+          <p className="microcopy" role="status">
+            {b.valueFeedback.answer === "skipped"
+              ? "You skipped the value question."
+              : "Value feedback saved."}
+          </p>
+        )}
+      </section>
+      <section className="review-panel">
+        <h2>A note about the experience</h2>
+        <p>
+          Private quality feedback is saved separately from your public demo
+          rating, value answer and safety reports.
+        </p>
+        <label className="field-label">
+          Private demo quality feedback
+          <textarea
+            maxLength={1000}
+            value={quality}
+            onChange={(event) => setQuality(event.target.value)}
+            placeholder="Use fictional details for the quality review."
+          />
+        </label>
+        <button
+          className="secondary"
+          disabled={busy || !quality.trim()}
+          onClick={() =>
+            act(
+              "quality-feedback",
+              { bookingId: b.id, text: quality },
+              "Your private demo quality feedback is saved.",
+            )
+          }
+        >
+          Save private feedback
+        </button>
+      </section>
+    </>
+  );
+}
 function FailureFeedback({ b, s, busy, act }) {
   const existing = s.feedback?.find((f) => f.bookingId === b.id);
   const [text, setText] = useState(existing?.text || "");
@@ -214,6 +325,7 @@ export default function SessionFlow({
   act,
   setModal,
   navigate,
+  onRepeat,
 }) {
   const h = hosts.find((h) => h.id === b.hostId),
     complete = b.status === "COMPLETED";
@@ -372,6 +484,9 @@ export default function SessionFlow({
           <FailureFeedback b={b} s={s} busy={busy} act={act} />
         )}
         <div className="post-actions">
+          <button className="secondary" onClick={() => onRepeat(b)}>
+            Repeat this experience <ArrowRight size={17} />
+          </button>
           <button
             className="secondary"
             onClick={() => setModal({ type: "receipt", booking: b })}

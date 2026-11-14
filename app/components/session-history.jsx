@@ -6,7 +6,13 @@ import { isTerminal } from "../../lib/demo-policy.mjs";
 import { hostPhoto } from "../../lib/presentation.mjs";
 import { receiptFor } from "../../lib/receipts.mjs";
 import { PageHeading, Empty, expName, date, human } from "./shared";
-export default function SessionHistory({ s, onStart, openFlow, setModal }) {
+export default function SessionHistory({
+  s,
+  onStart,
+  openFlow,
+  setModal,
+  onRepeat,
+}) {
   return (
     <>
       <PageHeading
@@ -77,6 +83,9 @@ export default function SessionHistory({ s, onStart, openFlow, setModal }) {
                         }
                       >
                         Rebook {h.name}
+                      </button>
+                      <button className="text-btn" onClick={() => onRepeat(b)}>
+                        Repeat experience
                       </button>
                     </>
                   )}

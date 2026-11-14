@@ -1,5 +1,32 @@
 # Human Connection
 
+## Research-driven development branch
+
+The work on `feature/research-driven-beta-foundation` adds a separate staging API, normalized database schema, role and ownership checks, shared host reservations and activities, sandbox payment boundaries and private value feedback. The public Pages entry continues to use the browser simulator.
+
+Read the [implementation gap audit](docs/RESEARCH-IMPLEMENTATION-GAP-AUDIT.md), [architecture](docs/PRODUCTION-ARCHITECTURE.md), [roadmap](docs/IMPLEMENTATION-ROADMAP.md), [readiness checklist](docs/PRODUCTION-READINESS-CHECKLIST.md), [provider decisions](docs/PROVIDER-INTEGRATION-DECISIONS.md), [threat model](docs/SECURITY-THREAT-MODEL.md), [operations runbook](docs/BETA-OPERATIONS-RUNBOOK.md) and [test evidence](docs/QA-AND-TEST-EVIDENCE.md). The V1.3 handoff documents describe the earlier release.
+
+### Local development and tests
+
+Use Node 22.13 or newer. Run `npm ci`, `npm test`, `npm run lint` and `node node_modules/typescript/bin/tsc --noEmit`. The new integration tests use Node's SQLite module with a D1-compatible transactional adapter. `npm run build:pages` builds the standalone demo and `npm run preview:pages` serves it locally.
+
+The existing `npm run build` and `npm run dev -- --port 4193 --hostname 127.0.0.1` commands build and serve the Worker prototype. Run `TEST_BASE_URL=http://127.0.0.1:4193 npm run test:http` only against a disposable prototype workspace.
+
+### Configure isolated staging
+
+1. Provision a separate D1 database and bind it as `MARKETPLACE_DB` in an isolated staging Worker configuration. Apply `db/marketplace.sql` there. Preserve the existing demo `DB` binding.
+2. Copy `.env.example` to ignored local `.dev.vars`. Keep staging deployment secrets in the provider's secret store. Set the OIDC issuer, API audience and HTTPS JWKS URL for a managed identity tenant. The API expects signed RS256 access tokens with verified-email claims.
+3. Use hosted provider login and recovery with those access tokens. The new marketplace API accepts Bearer tokens. The customer demo UI still uses its simulator transport and has no production account flow.
+4. Bootstrap staff roles through a trusted database operator. Customer, host, host reviewer, safety and finance roles are stored in the database. Sensitive staff operations require recent provider-asserted MFA.
+5. After storage and identity configuration, set `HC_MARKETPLACE_ENABLED=true` and `MARKETPLACE_MODE=staging`. Request `/api/marketplace?resource=me` with a verified access token to confirm the boundary. POST actions require same-origin JSON and an idempotency key.
+6. To test payment intents, configure server-only `STRIPE_SANDBOX_SECRET_KEY` and `STRIPE_SANDBOX_WEBHOOK_SECRET`. Configure the raw-body callback endpoint `/api/marketplace/stripe-webhook` in an approved Stripe test account. Live keys are rejected.
+7. The Daily adapter needs an explicitly authorized test account and still requires paid-room entitlement, media-client and presence integration before browser calls can be exercised.
+8. Configure a staging cron to invoke the Worker's scheduled handler for expiry reconciliation. In-app notifications persist in an outbox. External delivery and alert routing require further integration.
+9. Review the staging manifest and access restrictions before deploying it through the selected hosting service. This branch has no configured staging identity, database binding, provider accounts or deployment target. The readiness checklist records the remaining launch work.
+
+No provider credentials, identity documents or conversation contents belong in the static build. Application tests use fictional identities and injected provider responses. Processor approval, host verification, safety staffing, approved policies and authorized launch remain prerequisites for real sessions and money.
+
+
 **[Open the interactive demo](https://gauravkudeshia.github.io/human-connection/)**
 
 Choose **Make Me Laugh**, **Hear Me Out**, or **Distract Me** and meet a fictional host for a simulated 15- or 30-minute session. Anyone with the demo link can try it without an account, installation, or payment card.

@@ -204,6 +204,18 @@ export default function ConnectionApp({ request = fetch } = {}) {
     setMatchError("");
     navigate("moment");
   };
+  const repeatExperience = (booking) => {
+    setPreferences({
+      experience: booking.experience,
+      style: booking.style || null,
+      duration: booking.duration,
+      format: booking.format,
+      language: booking.language || "English",
+    });
+    setMatchError("");
+    setStep(2);
+    navigate("moment");
+  };
   const browse = (withPreferences = false) => {
     setFilters(
       withPreferences
@@ -489,6 +501,7 @@ export default function ConnectionApp({ request = fetch } = {}) {
             )}
             {view === "history" && (
               <SessionHistory
+                onRepeat={repeatExperience}
                 s={s}
                 onStart={onStart}
                 openFlow={openFlow}
@@ -498,6 +511,7 @@ export default function ConnectionApp({ request = fetch } = {}) {
             {view === "session" &&
               (active ? (
                 <SessionFlow
+                  onRepeat={repeatExperience}
                   key={active.id}
                   b={active}
                   s={s}

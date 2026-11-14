@@ -2086,6 +2086,29 @@ dd {
 .decision-history {
   margin: 16px 0;
 }
+.welcome-pricing {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.profile-expertise {
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--bg);
+  margin: 16px 0;
+}
+.profile-expertise p {
+  margin-bottom: 8px;
+}
+.value-date-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 20px 0;
+}
+.value-date-filters label {
+  flex: 1 1 160px;
+}
 .decision-history summary {
   cursor: pointer;
 }

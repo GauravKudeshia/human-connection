@@ -92,6 +92,18 @@ export default function ProfileDialog({
             <span key={x}>{x}</span>
           ))}
         </div>
+        <div className="profile-expertise">
+          <h4>Conversation styles to explore</h4>
+          <div className="tags">
+            {h.styles.map((id) => (
+              <span key={id}>{styleName(id)}</span>
+            ))}
+          </div>
+          <p className="demo-caption">
+            Sample profile preferences. Experience approval and auditions apply
+            to future real hosts.
+          </p>
+        </div>
         <div className="written-intro">
           <span>
             <VideoOff size={17} />

@@ -13,7 +13,7 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "build:pages": "node pages/build.mjs",
-    "test": "node --test tests/engine.test.mjs tests/browser-transport.test.mjs tests/v13.test.mjs",
+    "test": "node --test tests/engine.test.mjs tests/browser-transport.test.mjs tests/v13.test.mjs tests/evolution-experience.test.mjs tests/marketplace*.test.mjs",
     "test:http": "node --test tests/http.test.mjs",
     "preview:pages": "python3 -m http.server 4195 --bind 127.0.0.1 --directory docs"
   },
