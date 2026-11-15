@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { recordProviderFailure } from "../../../../lib/marketplace/failure-alerts.mjs";
 import { verifyDailyWebhook } from "../../../../lib/marketplace/providers.mjs";
 import { createSessionService } from "../../../../lib/marketplace/sessions.mjs";
 import { MarketplaceError } from "../../../../lib/marketplace/errors.mjs";
@@ -56,6 +57,7 @@ export async function POST(request: Request) {
       config.DAILY_WEBHOOK_SECRET,
     );
   } catch {
+    await recordProviderFailure(config, "daily");
     return Response.json(
       { error: { message: "Video callback verification failed." } },
       { status: 400 },
@@ -71,6 +73,13 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     const known = error instanceof MarketplaceError;
+    await recordProviderFailure(
+      config,
+      "daily",
+      known && error.code === "PROVIDER_MISMATCH"
+        ? "payment_mismatch"
+        : "webhook_failed",
+    );
     return Response.json(
       {
         error: {

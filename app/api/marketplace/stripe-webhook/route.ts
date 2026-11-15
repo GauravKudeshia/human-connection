@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { recordProviderFailure } from "../../../../lib/marketplace/failure-alerts.mjs";
 import { verifyStripeWebhook } from "../../../../lib/marketplace/providers.mjs";
 import { createPaymentService } from "../../../../lib/marketplace/finance.mjs";
 import { MarketplaceError } from "../../../../lib/marketplace/errors.mjs";
@@ -55,6 +56,7 @@ export async function POST(request: Request) {
       config.STRIPE_SANDBOX_WEBHOOK_SECRET,
     );
   } catch {
+    await recordProviderFailure(config, "stripe");
     return Response.json(
       { error: { message: "Webhook verification failed." } },
       { status: 400 },
@@ -67,6 +69,13 @@ export async function POST(request: Request) {
     return Response.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const known = error instanceof MarketplaceError;
+    await recordProviderFailure(
+      config,
+      "stripe",
+      known && error.code === "PROVIDER_MISMATCH"
+        ? "payment_mismatch"
+        : "webhook_failed",
+    );
     return Response.json(
       {
         error: {

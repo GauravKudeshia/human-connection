@@ -6,6 +6,7 @@ import { experiences, stylesFor } from "../../lib/catalog.mjs";
 import { createBetaApi, human, money } from "./beta-api.mjs";
 import { HostWorkspace, OperationsWorkspace, useResource } from "./beta-panels";
 import BetaSession from "./beta-session";
+import { ClosureReceipt, PrivacyAccount, VisitConsent } from "./beta-additions";
 
 const defaults = {
   experience: "laugh",
@@ -26,6 +27,7 @@ export default function BetaApp({ request = fetch } = {}) {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
+  const [measureVisit, setMeasureVisit] = useState(false);
   const lock = useRef(false);
   const main = useRef(null);
   function clearIdentity() {
@@ -73,12 +75,12 @@ export default function BetaApp({ request = fetch } = {}) {
     };
   }, [api, refresh]);
   useEffect(() => {
-    if (!session?.authenticated) return;
+    if (!session?.authenticated || view === "account") return;
     const timer = setInterval(() => {
       void refresh().catch((issue) => setError(issue.message));
     }, 10000);
     return () => clearInterval(timer);
-  }, [session?.authenticated, refresh]);
+  }, [session?.authenticated, refresh, view]);
   useEffect(() => {
     main.current?.focus();
   }, [view, selected?.id]);
@@ -151,6 +153,12 @@ export default function BetaApp({ request = fetch } = {}) {
               Saved hosts
             </button>
             <button
+              aria-current={view === "account" ? "page" : undefined}
+              onClick={() => navigate("account")}
+            >
+              Account
+            </button>
+            <button
               aria-current={view === "host" ? "page" : undefined}
               onClick={() => navigate("host")}
             >
@@ -186,6 +194,9 @@ export default function BetaApp({ request = fetch } = {}) {
           </button>
         )}
       </header>
+      <p className="beta-notice">
+        Staging workspace · Test payments only · Live host service is disabled
+      </p>
       <div className="beta-service-note">
         Controlled beta workspace · Live service availability depends on
         approved hosts and configured providers.
@@ -291,6 +302,18 @@ export default function BetaApp({ request = fetch } = {}) {
                 busy={busy}
                 revision={revision}
                 onSelect={setSelected}
+                onExperienceSelected={() => {
+                  if (measureVisit)
+                    void request("/api/marketplace/visitor", {
+                      method: "POST",
+                      credentials: "same-origin",
+                      headers: {
+                        "Content-Type": "application/json",
+                        "Idempotency-Key": crypto.randomUUID(),
+                      },
+                      body: JSON.stringify({ action: "select" }),
+                    }).catch(() => {});
+                }}
               />
             )}
             {view === "history" && (
@@ -301,6 +324,7 @@ export default function BetaApp({ request = fetch } = {}) {
                 onRepeat={repeat}
               />
             )}
+            {view === "account" && <PrivacyAccount api={api} />}
             {view === "saved" && (
               <SavedHosts
                 api={api}
@@ -342,6 +366,10 @@ export default function BetaApp({ request = fetch } = {}) {
           Private calls use participant access. Recording is off by default.
         </span>
       </footer>
+      <ClosureReceipt request={request} />
+      {configured && (
+        <VisitConsent request={request} onChange={setMeasureVisit} />
+      )}
     </div>
   );
 }
@@ -356,6 +384,7 @@ function CustomerChoice({
   busy,
   revision,
   onSelect,
+  onExperienceSelected,
 }) {
   const { data: eligibility, error: eligibilityError } = useResource(
     api,
@@ -415,9 +444,20 @@ function CustomerChoice({
             }
             aria-pressed={preferences.experience === experience.id}
             key={experience.id}
-            onClick={() =>
-              change({ ...preferences, experience: experience.id, style: null })
-            }
+            onClick={() => {
+              change({
+                ...preferences,
+                experience: experience.id,
+                style: null,
+              });
+              onExperienceSelected?.();
+              void api
+                .act("track", {
+                  name: "experience_selected",
+                  experience: experience.id,
+                })
+                .catch(() => {});
+            }}
           >
             <Image
               unoptimized
@@ -606,8 +646,38 @@ function CustomerChoice({
           <div className="beta-host-grid">
             {hosts.map((host) => (
               <article className="beta-card" key={host.user_id}>
+                {host.photo && (
+                  <Image
+                    unoptimized
+                    className="beta-profile-photo"
+                    src={
+                      "/api/marketplace/media?kind=photo&id=" +
+                      encodeURIComponent(host.photo.id)
+                    }
+                    alt={host.photo.alt_text}
+                    width={160}
+                    height={160}
+                  />
+                )}
                 <h3>{host.display_name}</h3>
+                {host.identityVerified && (
+                  <p className="beta-small">
+                    Identity verified · Experience reviewed
+                  </p>
+                )}
                 <p>{host.biography}</p>
+                {host.statistics && (
+                  <p className="beta-small">
+                    {host.statistics.delivered} delivered sessions ·{" "}
+                    {host.statistics.ratings
+                      ? Number(host.statistics.averageRating).toFixed(1) +
+                        " / 5 from " +
+                        host.statistics.ratings +
+                        " ratings"
+                      : "No public ratings yet"}
+                    {host.repeatGuest ? " · You’ve met before" : ""}
+                  </p>
+                )}
                 {host.intro && (
                   <div className="beta-introduction">
                     <p>Host introduction</p>

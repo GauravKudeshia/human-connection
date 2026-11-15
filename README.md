@@ -1,83 +1,65 @@
 # Human Connection
 
-The [continued implementation record](docs/CONTINUED-IMPLEMENTATION-2026-11-14.md) describes the connected beta interface, hosted sign-in flow, media attendance, host introductions, appeals, notifications and sandbox reconciliation added after the foundation review. Open `/beta` on the local Worker to use that interface. Node 22.14 or newer is required by the media SDK.
+Human Connection offers three short hosted experiences: **Make Me Laugh**, **Hear Me Out** and **Distract Me**. This repository contains a public browser simulator and a separate, server-authorized staging marketplace. The development branch is `feature/research-driven-beta-foundation`; no live marketplace deployment has been made.
 
-Apply `db/marketplace.sql`, then `db/marketplace-auth.sql`, `db/marketplace-session-finance.sql` and `db/marketplace-operations.sql` to an isolated staging database. The [staging configuration example](wrangler.staging.example.jsonc) supplies the binding names. Copy and fill it for local testing, run `npx wrangler dev --local --port 4212 --config wrangler.staging.example.jsonc` after building, and register `/api/marketplace/auth/callback` as the managed provider's callback. Server-only credentials belong in ignored `.dev.vars` or the staging secret store. Keep the application origin aligned with the local port.
+[Open the public interactive demo](https://gauravkudeshia.github.io/human-connection/). It uses fictional hosts, simulated payments and simulated rooms. It needs no account or payment card. Its role previews never grant access to the staging database.
 
-## Research-driven development branch
+Read the [Master Prompt compliance record](docs/MASTER-PROMPT-COMPLIANCE.md) for current capability status and the [QA evidence](docs/QA-AND-TEST-EVIDENCE.md) for the limits of verification. Older V1.3 and November 14 records are historical snapshots.
 
-The work on `feature/research-driven-beta-foundation` adds a separate staging API, normalized database schema, role and ownership checks, shared host reservations and activities, sandbox payment boundaries and private value feedback. The public Pages entry continues to use the browser simulator.
+## Run and test locally
 
-Read the [implementation gap audit](docs/RESEARCH-IMPLEMENTATION-GAP-AUDIT.md), [architecture](docs/PRODUCTION-ARCHITECTURE.md), [roadmap](docs/IMPLEMENTATION-ROADMAP.md), [readiness checklist](docs/PRODUCTION-READINESS-CHECKLIST.md), [provider decisions](docs/PROVIDER-INTEGRATION-DECISIONS.md), [threat model](docs/SECURITY-THREAT-MODEL.md), [operations runbook](docs/BETA-OPERATIONS-RUNBOOK.md) and [test evidence](docs/QA-AND-TEST-EVIDENCE.md). The V1.3 handoff documents describe the earlier release.
-
-### Local development and tests
-
-Use Node 22.14 or newer. Run `npm ci`, `npm test`, `npm run lint` and `node node_modules/typescript/bin/tsc --noEmit`. The new integration tests use Node's SQLite module with a D1-compatible transactional adapter. `npm run build:pages` builds the standalone demo and `npm run preview:pages` serves it locally.
-
-The existing `npm run build` and `npm run dev -- --port 4193 --hostname 127.0.0.1` commands build and serve the Worker prototype. Run `TEST_BASE_URL=http://127.0.0.1:4193 npm run test:http` only against a disposable prototype workspace.
-
-### Configure isolated staging
-
-1. Provision a separate D1 database and bind it as `MARKETPLACE_DB` in an isolated staging Worker configuration. Apply `db/marketplace.sql` there. Preserve the existing demo `DB` binding.
-2. Copy `.env.example` to ignored local `.dev.vars`. Keep staging deployment secrets in the provider's secret store. Set the OIDC issuer, API audience and HTTPS JWKS URL for a managed identity tenant. The API expects signed RS256 access tokens with verified-email claims.
-3. Use hosted provider login and recovery with those access tokens. The new marketplace API accepts Bearer tokens. The customer demo UI still uses its simulator transport and has no production account flow.
-4. Bootstrap staff roles through a trusted database operator. Customer, host, host reviewer, safety and finance roles are stored in the database. Sensitive staff operations require recent provider-asserted MFA.
-5. After storage and identity configuration, set `HC_MARKETPLACE_ENABLED=true` and `MARKETPLACE_MODE=staging`. Request `/api/marketplace?resource=me` with a verified access token to confirm the boundary. POST actions require same-origin JSON and an idempotency key.
-6. To test payment intents, configure server-only `STRIPE_SANDBOX_SECRET_KEY` and `STRIPE_SANDBOX_WEBHOOK_SECRET`. Configure the raw-body callback endpoint `/api/marketplace/stripe-webhook` in an approved Stripe test account. Live keys are rejected.
-7. The Daily adapter needs an explicitly authorized test account and still requires paid-room entitlement, media-client and presence integration before browser calls can be exercised.
-8. Configure a staging cron to invoke the Worker's scheduled handler for expiry reconciliation. In-app notifications persist in an outbox. External delivery and alert routing require further integration.
-9. Review the staging manifest and access restrictions before deploying it through the selected hosting service. This branch has no configured staging identity, database binding, provider accounts or deployment target. The readiness checklist records the remaining launch work.
-
-No provider credentials, identity documents or conversation contents belong in the static build. Application tests use fictional identities and injected provider responses. Processor approval, host verification, safety staffing, approved policies and authorized launch remain prerequisites for real sessions and money.
-
-
-**[Open the interactive demo](https://gauravkudeshia.github.io/human-connection/)**
-
-Choose **Make Me Laugh**, **Hear Me Out**, or **Distract Me** and meet a fictional host for a simulated 15- or 30-minute session. Anyone with the demo link can try it without an account, installation, or payment card.
-
-The homepage opens with three selectable photo scenes. You can also try a sample conversation starter and take its style into demo matching. [Homepage design audit](docs/HOMEPAGE-DESIGN-AUDIT.md)
-
-## V1.3: find your moment
-
-1. Choose an experience and an optional conversation style.
-2. Choose 15 or 30 minutes, audio/video and language. Use **Match Me Now** or browse hosts yourself.
-3. Simulate the host’s acceptance, review the exact demo total, and confirm checkout.
-4. Join within three minutes or receive a full automatic demo reversal. Explore optional sample activity cards inside the simulated room.
-5. Complete the demo to try a review and optional tip; use receipts, refund review, favorites and rebooking. Host studio and Operations remain fictional role previews.
-
-See [feature audit](docs/V1.3-FEATURE-AUDIT.md), [product experience](docs/V1.3-PRODUCT-EXPERIENCE.md), [engineering changes and tests](docs/V1.3-ENGINEERING-CHANGES.md), and [production gaps](docs/V1.3-PRODUCTION-GAPS.md).
-
-The [November 12 audit fixes](docs/AUDIT-FIXES-2026-11-12.md) cover booking preferences, review completion, decision history, authentication expiry, reset retries, storage recovery and updated dependencies.
-
-The public preview runs entirely in your browser. Activity survives reloading the same tab when session storage is available. It does not sync to another device or another visitor. Use fictional details only. Reports do not notify a real person; no payments, microphone capture, camera access or live calls occur in the public demo.
-
-You can also download `docs/index.html` and open it directly in a current browser. The interface, portraits and scripts are embedded; external fonts are optional.
-
-## Source and publishing
-
-- `app/`: shared React interface and the original full-stack server routes.
-- `lib/`: fictional host catalog, booking and simulated ledger rules, and server-side D1 storage.
-- `pages/`: guest preview transport and static build entry point. GitHub Pages serves `docs/index.html`, not the server routes.
-- `tests/`: domain and public-preview tests. The HTTP integration test is for a disposable local full-stack database only.
-
-### Rebuild the public preview
-
-With Node 22.14+ and npm, run `npm ci`, `npm test`, then `npm run build:pages`. Commit the generated `docs/index.html`. In GitHub **Settings → Pages**, publish **main /docs**. The `docs` folder contains the public demo, `.nojekyll`, and the public V1.3 handoff documents. No runtime data or secrets are published.
-
-For a local preview, run `npm run preview:pages` after building and open `http://127.0.0.1:4195/`. Stop it with Ctrl+C. Useful checks are `npm run lint`, `npm test`, and `node node_modules/typescript/bin/tsc --noEmit`.
-
-### Run the full-stack prototype separately
-
-Run `npm ci`, `npm run build`, apply `drizzle/0000_faulty_clea.sql` once to a new local D1 database, then run `npm run dev -- --port 4193 --hostname 127.0.0.1`. Example migration command:
+Use Node **22.14+** and npm. Install with `npm ci`. Run:
 
 ```sh
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_faulty_clea.sql
+npm test
+npm run lint
+node node_modules/typescript/bin/tsc --noEmit
+npm run build
+npm run build:pages
 ```
 
-The HTTP integration suite must run only against a disposable local workspace: `TEST_BASE_URL=http://127.0.0.1:4193 npm run test:http`. It resets that test workspace.
+`npm run preview:pages` serves the standalone demo at `http://127.0.0.1:4195`. `docs/index.html` also opens directly in a current browser. `npm run dev -- --host 127.0.0.1 --port 4212` serves the existing Worker application. `/beta` opens the connected staging interface and explains when account configuration is unavailable.
 
-The full-stack preview uses Sites authentication and owner-scoped D1 storage. Its checkout and room are also simulated. This repository contains no original hosting-project identity, customer data, provider keys or local database.
+The automated tests use transactional SQLite behind the D1 statement interface, local identity fixtures and injected provider responses. They exercise real application services and HTTP Request/Response routing. They do not contact provider accounts or establish actual calls.
 
-## Scope
+## Configure the separate marketplace
 
-Human Connection is an interactive prototype, not a working paid marketplace or a staffed safety service. Real verified hosts, provider integrations, policy approvals, and production operational controls are outside this demo. See [asset credits](ASSETS.md).
+1. Copy `.env.example` to ignored `.dev.vars`. Keep credentials out of source control, browser code and chat.
+2. Run `npm run db:marketplace:local`. It applies all **eight** migrations in [the canonical order](db/marketplace-migrations.mjs), using only the local `MARKETPLACE_DB` in `wrangler.staging.example.jsonc`. This script rejects arguments and never uses `--remote`.
+3. Run `npm run build`, then `npm run start:marketplace:local`. The example configuration uses isolated marketplace database/media bindings and defaults the marketplace to disabled. Preserve the original demo `DB` binding in its existing configuration.
+4. Configure a managed OIDC tenant: issuer, access-token audience, JWKS URL, client ID/secret, and the exact application origin. Register `/api/marketplace/auth/callback`. Configure hosted sign-up, verified email, account recovery and staff MFA. Create a server-only random 32-byte session secret in the documented base64 format.
+5. Set `HC_MARKETPLACE_ENABLED=true` and `MARKETPLACE_MODE=staging` only in the isolated local/staging configuration. `/beta` then uses hosted OIDC/PKCE and encrypted, revocable HttpOnly sessions. Verified Bearer tokens are also accepted. Browser-supplied identity headers are ignored.
+6. Bootstrap staff roles through a trusted database operator. Customers cannot assign roles. Host acceptance requires server-owned approval, verification, certification, current heartbeat and an available global claim. Staff decisions require assigned permissions and recent MFA.
+7. For an authorized Stripe test account, configure the three `STRIPE_SANDBOX_*` values and `/api/marketplace/stripe-webhook`. The browser receives only a test publishable key and owned checkout secret. Live keys/responses are rejected. Reconcile actual sandbox captures, partial/full refunds, tips, fees and disputes before any pilot.
+8. For an authorized Daily test account, configure its key, webhook secret and `DAILY_ALLOW_TEST_ROOMS=true`. Register `/api/marketplace/daily-webhook`. Verify two independent authenticated browsers, device permissions, network loss and reconnection. Trusted signed provider attendance determines delivery; frontend callbacks do not award earnings.
+9. Configure the private `MARKETPLACE_MEDIA` R2 binding for authenticated introduction clips and reviewed profile photos. No public bucket or identity document upload is used.
+10. Configure the example minute cron and an authorized sandbox notification destination to exercise leased outbox delivery, alerts, expiry, financial retries and reviewed privacy processing. Notification delivery remains unconfigured by default.
+
+Actual identity/payment/video account verification and hosted deployment have **not** been performed. The user selected local verification for this iteration.
+
+## Financial and privacy controls
+
+Base and tip refunds support monotonic cumulative amounts and immutable compensation. Full or partial base awards require finance review. Test connected-account transfers require a separate disabled-by-default `MARKETPLACE_ALLOW_TEST_TRANSFERS` gate, settled journal balances and a different finance approver. These transfers are not bank payouts. Production merchant structure and bank payout dispatch remain approval-dependent work.
+
+Account closure immediately revokes access and availability. Scheduled private-data erasure requires an explicitly reviewed retention policy and every duration in `.env.example`; destructive processing defaults off. Legal/safety/financial holds preserve required evidence. [Privacy operations](docs/PRIVACY-RETENTION-OPERATIONS.md) describes receipts, holds, retries and the limits of R2/database coordination. External provider account deletion remains a separate operation.
+
+Optional anonymous visit analytics are off by default, use a 24-hour HttpOnly opaque token, retain visit records for 31 days and never link the token to an account. Selection conversion covers consenting visits only. Other analytics derive from actual application events/journal entries and display denominators and cohort maturity.
+
+## Existing prototype HTTP regression
+
+The original full-stack simulator remains separately testable. Apply `drizzle/0000_faulty_clea.sql` to a disposable local demo `DB`, start the existing development server, then run `TEST_BASE_URL=http://127.0.0.1:4212 npm run test:http`. This suite resets its fictional workspace; run it only against disposable local data. It is separate from the normalized marketplace HTTP journey tests included in `npm test`.
+
+## Staging and public publishing
+
+GitHub Pages serves `docs/index.html` and cannot execute authentication, database, payment or video routes. `npm run build:pages` rebuilds the static demo. The updated marketplace source is on the development branch; it is not a publicly deployed application.
+
+A hosted staging environment needs a reviewed copy of the example configuration, isolated D1/R2, server secrets, restricted access, migrations, callback destinations and a restore drill. No staging resources are provisioned by local scripts. Production deployment, live charges, stranger calls, real payouts and customer communications require explicit authorization under the project brief.
+
+## Engineering records
+
+- [Current gap audit](docs/RESEARCH-IMPLEMENTATION-GAP-AUDIT.md) and [Master Prompt compliance](docs/MASTER-PROMPT-COMPLIANCE.md)
+- [Architecture](docs/PRODUCTION-ARCHITECTURE.md), [roadmap](docs/IMPLEMENTATION-ROADMAP.md), [readiness](docs/PRODUCTION-READINESS-CHECKLIST.md)
+- [Security](docs/SECURITY-THREAT-MODEL.md), [provider decisions](docs/PROVIDER-INTEGRATION-DECISIONS.md), [operations](docs/BETA-OPERATIONS-RUNBOOK.md)
+- [QA evidence](docs/QA-AND-TEST-EVIDENCE.md) and [asset credits](ASSETS.md)
+
+Preserve the cream, forest-green and terracotta identity, the three experience choices and the existing demo regression coverage. No social feed, random stranger chat, AI host, clinical treatment, default recording or invented real-host performance is introduced.

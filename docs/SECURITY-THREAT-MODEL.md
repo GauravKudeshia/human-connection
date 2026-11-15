@@ -1,61 +1,30 @@
 # Security threat model
 
-The [continued implementation record](CONTINUED-IMPLEMENTATION-2026-11-14.md) supersedes the foundation status descriptions below for browser authentication, connected beta screens, host media, attendance, financial operations and notifications. Its evidence distinguishes local implementation from unexecuted provider-account verification.
+November 15, 2026. Scope: public simulator, owner-workspace prototype and isolated staging marketplace. This is an application review with local tests, not an independent penetration-test certification.
 
-November 14, 2026. Scope includes the existing browser demo, owner-workspace prototype and the branch's isolated staging marketplace boundary.
+| Threat / boundary                                       | Implemented control                                                                                                                              | Evidence and remaining limit                                                                            |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| Forged identities, headers and roles                    | Managed OIDC/PKCE, JOSE issuer/audience/JWKS/claims, encrypted revocable cookie, provenance-bound actors, persisted roles/status                 | Auth/browser-auth/store/router tests; actual tenant/recovery/MFA/JWKS rotation unconfigured             |
+| Another customer's booking/payment, unrelated host room | Participant ownership, server-owned identities, least-privilege roles and recent MFA                                                             | Negative store/router/session/finance tests; actual hosted accounts pending                             |
+| CSRF, cross-origin writes, session leakage              | Exact same-origin POST, HttpOnly SameSite cookies, bounded JSON and no-store responses; checkout secrets scoped to owner                         | Browser-auth/router tests; deployed cookie/TLS/CORS/CSP review pending                                  |
+| Injection or arbitrary provider endpoint                | Prepared SQL, React text rendering, fixed provider origins and allowlisted event fields                                                          | Tests and code review; no raw report HTML or caller-selected JWKS/provider origin                       |
+| Overbooking and stale availability                      | Atomic unique claims, in-statement eligibility, heartbeat expiry, authoritative deadlines and release                                            | 32-user and HTTP contention, rollback/expiry tests; hosted contention/load pending                      |
+| Duplicate or unordered money events                     | Signed raw callbacks, sandbox-only credentials/response checks, immutable source IDs and cumulative refund steps                                 | Base/tip replay/order/refund/reconciliation tests; actual processor events pending                      |
+| Rounding and financial manipulation                     | Integer minor units, server quotes/versioned share, exact integer proportional refund rounding, append-only journal                              | Boundary arithmetic, balancing and tamper tests; actual tax/merchant responsibility unapproved          |
+| Duplicate or unauthorized transfers                     | Default-off test transfer gate, verified finance actor, settled balances, global holds, independent approver, stable keys and monotonic reversal | Payout tests; no live transfer/bank payout support                                                      |
+| Unauthorized room, closed customer or suspended host    | Paid/private room grants, participant binding/expiry, before/after account checks, no default recording/transcription                            | Session closure-during-token tests and signed attendance fixtures; actual device/provider tests pending |
+| False completed delivery                                | Trusted dual-attendance unions, original deadline, no-join expiry without room, partial/failed outcomes                                          | Sessions and three actual-router fixture journeys; physical/network exercises pending                   |
+| Media abuse/private identity exposure                   | Authenticated bounded uploads, MIME/magic checks, private R2, consent/transcript/moderation; PNG size/pixel/CRC checks and metadata removal      | Onboarding/experience tests; real media moderation, scanning policy and hosted abuse review pending     |
+| Closure races and data resurrection                     | Atomic identity-block/provision check; guarded close/retry if capture wins; active booking/upload/draft guards; post-upload revocation cleanup   | Privacy, session, experience and boundary race tests                                                    |
+| Excessive access to safety/finance data                 | Separate review/safety/finance/admin permissions; case-assigned safety suspension; audit reasons                                                 | Console/store/operations tests; actual access review and staffing pending                               |
+| Lost/looping notifications and jobs                     | Durable leases, stable keys, bounded retries and role-scoped alert outbox; no recursive alert failure chain                                      | Operations/finance/privacy tests; actual delivery destination and receipt unconfigured                  |
+| Resource exhaustion                                     | Read/mutation/media quotas, bounded parsing/uploads/batches, visitor storage cap, quota expiry                                                   | Boundary tests; hosted WAF/rate/cost/load testing pending                                               |
+| Analytics surveillance or fabricated metrics            | Allowlisted minimal events, no conversation content, unlinked opt-in visitor tokens, explicit denominators/maturity/nulls                        | Analytics/operations tests; no clinical-effect inference                                                |
+| Premature erasure or ignored holds                      | Destructive default OFF, reviewed duration snapshot, active lease/hold checks, deferred unsettled evidence, private receipt hash                 | Privacy tests; reviewed policy and external provider erasure unavailable                                |
+| Audit/journal tampering                                 | Ledger and policy/privacy evidence reject update/delete; corrective events append                                                                | Database/finance/privacy tests; privileged DBA/backup access still requires infrastructure control      |
 
-## Assets and trust boundaries
+General logs exclude body text, names, credentials, private reports and provider secrets. Callback failure alerts use fixed provider/category/time buckets. Database outage may prevent durable alert storage; structured application logs are a fallback, not an externally configured paging service.
 
-Private assets include identity-verification references, provider credentials, customer bookings, safety narratives, financial references and staff decisions. Public host display data must remain a deliberate projection of approved fields.
+R2 and SQLite do not share atomic deletion. A hold cannot restore an object already legitimately erased before that hold was placed. Follow the approved retention/restore procedure and [privacy operating guide](PRIVACY-RETENTION-OPERATIONS.md). Full infrastructure penetration testing, managed-provider settings, real uploads, independent browser engines and specialist accessibility remain required before launch.
 
-| Boundary | Required invariant |
-| --- | --- |
-| Static browser demo → local state | Fictional activity confers no authority over marketplace accounts or provider objects |
-| Browser → marketplace API | A verified access token identifies the actor. Request payloads cannot assign roles or ownership |
-| API → marketplace D1 | Parameterized queries and database constraints preserve owners, claims and state transitions |
-| Identity provider → API | Signature, issuer, audience, expiry, token type and required claims are validated |
-| Staff actor → sensitive action | Persisted role, active account and recent higher-assurance authentication are checked |
-| Payment provider → callback | Raw-body signature and test-mode gates precede any financial mutation |
-| Booking → media provider | Authorized participants receive bounded grants for their own booking |
-| Application → logs and analytics | Secret values and private conversation/report contents stay outside general telemetry |
-
-## Threats and disposition
-
-| Threat | Implemented boundary or mitigation | Verification and remaining work |
-| --- | --- | --- |
-| Forged identity headers | Marketplace authentication uses a signed RS256 bearer token and server-selected JWKS. Sites headers remain in the separate prototype. | Auth tests must reject unsigned, wrong-key, expired, wrong-issuer and wrong-audience tokens. Configure real tenant rotation and logout exercises. |
-| Client-selected role or object owner | Roles come from persisted assignments and services check the actor on each object operation. | Negative service tests cover other customers, unrelated hosts and nonstaff. Review first-admin provisioning separately. |
-| Staff privilege escalation | Host review, safety, finance and administration are distinct roles. Sensitive staff actions require recent MFA evidence. | Test each restricted operation with the wrong role. Provider MFA enrollment remains unconfigured. |
-| Host overbooking | Marketplace claims have unique host, customer and booking constraints. Claim creation and booking evidence share a database operation. | SQLite contention and rollback tests provide local evidence. Hosted D1 contention remains a staging verification. |
-| Replay or conflicting retries | Requests use actor-bound replay identifiers. Activity writes carry the expected revision. Payment provider keys derive from the booking. | Repeated identifiers preserve one logical action. Changed payloads and stale revisions must be rejected. |
-| Cross-origin state change | API request checks restrict browser-origin writes. Bearer authorization is required separately. | Exercise same-origin and foreign-origin requests through the configured HTTP boundary. |
-| SQL or script injection | SQL values are bound parameters. Existing React output renders untrusted feedback as text. | Preserve those entry points. No raw feedback HTML rendering is introduced. |
-| Financial replay or unordered events | Callback verification precedes sandbox event ingestion. Event IDs and logical journal keys prevent repeated capture/refund entries. | Contract tests cover signature failure, repeats and refund-before-success. Actual provider callback delivery is unconfigured. |
-| Changed prices or currencies | Server quote snapshots include a version and expiry. Provider events must match expected amount and currency. | Reject modified amounts, expired quotes and mismatched provider objects. Taxes remain unconfigured. |
-| Journal tampering | Marketplace journal rows have update/delete rejection triggers. Corrections append financial events. | Database tests must exercise the triggers and balanced event groups. Database-administrator access still requires operational controls. |
-| Unauthorized room grant | Daily adapter uses private room requests and participant/room/expiry-bound properties. | Local request construction can be tested. Paid-booking authorization, provider events and two-browser delivery remain integration gates. |
-| Upload abuse or identity leakage | No production upload capability is enabled by this branch. Verification references belong in separate private records. | Secure media upload, content validation, consent and moderation remain NOT STARTED. |
-| Alert loss | A persistent report or notification records intent to respond. | Provider delivery, retry worker, escalation destination and staff coverage must be exercised before a response claim. |
-| Resource exhaustion | Bounded request parsing, action validation and account rate controls belong at the API boundary. | Hosted quota, load and abuse testing remain required. Do not run provider load tests against live accounts. |
-| Retention failure | Demo closure waits for open reviews and removes narratives after resolution. Staging records separate public and private concerns. | A production retention schedule, deletion worker and access review still need implementation and qualified review. |
-
-## Provider and runtime risks
-
-The identity and payment endpoints are server configuration. Client input must not select a key host, change a provider base URL or turn on live processing. Keep secrets outside the static bundle and outside log fields.
-
-The API remains closed unless its staging gate, independent database binding and identity settings are configured. Supplying flags alone does not establish staffed safety, approved payment processing or verified host supply.
-
-The original owner-workspace prototype still depends on its Sites proxy identity boundary. Exposing that prototype behind an untrusted proxy requires a separate deployment review.
-
-## Required staging exercises
-
-- Two customers contend for one host through independent authenticated requests.
-- A host requests another host's booking or room and receives a denial.
-- A safety operator attempts a finance action and receives a denial.
-- A suspended account loses access while a browser view remains open.
-- A callback is repeated, delayed and delivered before another relevant event.
-- A database restore preserves ownership, active claims and reconciled journal events.
-- A report is delivered to the configured responder without exposing its narrative in general logs.
-
-[QA evidence](QA-AND-TEST-EVIDENCE.md) records executed checks. [Production readiness](PRODUCTION-READINESS-CHECKLIST.md) records activation gates.
-
+The original Sites-header prototype must remain behind its trusted proxy. It has no marketplace staff authority. Flags alone do not constitute operational readiness. See [readiness](PRODUCTION-READINESS-CHECKLIST.md) and [QA](QA-AND-TEST-EVIDENCE.md).

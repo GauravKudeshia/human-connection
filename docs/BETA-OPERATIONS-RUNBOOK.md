@@ -1,70 +1,45 @@
 # Beta operations runbook
 
-The [continued implementation record](CONTINUED-IMPLEMENTATION-2026-11-14.md) supersedes the foundation status descriptions below for browser authentication, connected beta screens, host media, attendance, financial operations and notifications. Its evidence distinguishes local implementation from unexecuted provider-account verification.
+November 15, 2026. This describes an authorized controlled environment. No actual host supply, staffed safety response, real payout or public beta operation has been established.
 
-November 14, 2026. This is the operating procedure for an authorized controlled environment. The branch has no live customer operation, approved host supply or staffed-response claim.
+## Environment and access
 
-## Before opening a controlled session
+Confirm the isolated D1/R2, issuer/client/origin, provider test mode, approved test actors and scheduled worker. Keep the public simulator separate. Bootstrap staff roles through a trusted operator. Host review, safety, finance and administration are different roles; sensitive actions require recent MFA. Record incident/request references, owners and decisions without logging credentials, documents or private narratives.
 
-Confirm the environment identifier, marketplace database binding, authentication issuer, allowed test accounts and provider mode. Keep the static demo and its fictional Operations controls outside staff authorization.
+## Host quality
 
-Use server-stored roles for host review, safety and finance. Sensitive staff actions require the configured higher-assurance authentication check. Provision staff through a controlled administrative process and retain an approval record. An account's own request cannot assign staff authority.
+Applicants can save a draft, submit a profile, accept policy/training and upload consented introduction/photo media. Verify provider-owned identity/payout references separately from public profile data. Review the clip/transcript/photo and record the decision. Audition and certify each experience separately, with rubric/version/re-evaluation date. Identity verification does not establish hosting suitability. Approved availability still requires recent heartbeat and an unclaimed eligible host. Handle rejection/suspension appeals through a different reviewer.
 
-## Host onboarding
+Before live host approval, qualified reviewers must approve actual policy/training materials and age/jurisdiction/identity assurance. Hosts sell bounded ordinary human experiences. They must not diagnose, promise emotional outcomes, solicit off-platform money, pursue romantic/sexual interaction or claim a customer's personal friendship. For distressed users or imminent danger, use the reviewed location-appropriate emergency guidance and escalation process; no clinical assessment is promised by this code.
 
-1. The applicant submits a public display profile and the requested experiences, languages and formats.
-2. A reviewer checks the separate verification reference and eligibility status.
-3. The reviewer evaluates an audition for each proposed experience and records the decision and explanation.
-4. Training and policy acceptance must be recorded before eligibility.
-5. Approve availability only after identity, experience certification and payout prerequisites satisfy the configured policy.
-6. On suspension, prevent new offers and review active reservations individually.
-7. Handle an appeal through a different authorized review where the approved policy requires it.
+## Booking and delivery
 
-Identity-verification vendor requests, secure introduction uploads and provider payout onboarding still require integration. A local approval record must not imply that those external checks occurred.
+Read the authoritative booking before retrying. A decline/expiry can lead to another eligible unpaid request while preserving choices; neither searching nor being declined creates a charge. A started payment prevents automatic replacement and requires resolution. Inspect the quote, payment reference, immutable events and provider state when checkout and UI disagree.
 
-## Booking and provider failure
+Provider attendance establishes delivery. A successful payment alone does not. Neither participant joining must produce failed-service review, including when no room was provisioned. Insufficient overlap, early termination and safety ending remain distinct from completion. End/report/block controls work independently. Room cleanup can be pending; inspect retries and provider state before reopening service.
 
-For a conflict or expired request, verify the authoritative booking state before asking the customer to retry. A host decline should release the claim and lead to another eligible choice without creating a charge.
+## Safety and account actions
 
-If checkout appears successful but the session is unavailable, compare the application's quote, payment reference, provider status and signed event record. A successful payment establishes a financial event. Delivery requires separate authorized participant evidence.
+Prioritize reports, assign an authorized reviewer, preserve necessary evidence and record resolution/escalation. A safety operator may suspend the reported account only through an assigned open case; administrators have separate authority. Suspension revokes sessions, removes availability, ends affected bookings, releases claims and queues captured payments for finance review. Account reinstatement is an administrator action and does not silently reapprove a host profile. Confirm bilateral blocks exclude subsequent matching.
 
-For a media outage, stop new affected offers, preserve the booking and payment references, and open the applicable service review. Apply the approved partial-delivery policy. Record the recovery action and confirm that a retry cannot duplicate a charge or refund.
+Reports and alert records do not prove human receipt. Configure an authorized sandbox delivery destination and verify receipt, retry cutoff and on-call ownership. Do not advertise response hours before staff coverage exists.
 
-## Safety case handling
+## Financial review
 
-1. Receive the authorized report and verify the booking relationship when present.
-2. Prioritize the case using the recorded urgency and category.
-3. Assign a safety operator, record the action and preserve only necessary evidence.
-4. Use the approved suspension or booking-ending action when warranted.
-5. Record the resolution and any appeal path.
-6. Check that blocking affects subsequent matching in both directions.
-7. Confirm the alert reached the configured responder through delivery evidence.
+Use finance/admin MFA. Inspect trusted overlap, the original charge, cumulative refunds, prior awards, fees/disputes and the approved policy. An optional refund amount awards part of the remaining principal; blank awards the remaining amount. Awards are immutable and dispatch uses a stable provider key. Only confirmed callback/reconciliation evidence posts refund compensation. Another review can reopen the remaining principal without duplicating an earlier request.
 
-For immediate danger, use the reviewed location-appropriate emergency wording. Hosts provide ordinary conversation and follow escalation guidance within their training. Clinical assessment and crisis treatment require separate professional frameworks.
+Tip principal is tracked separately; partial external tip refunds converge cumulatively. Finance can refund remaining tip principal on a fully refunded base booking. Retry jobs keep a fixed amount/key even after an ambiguous provider response.
 
-A database report record does not establish that an operator received it. Email, push or paging delivery and coverage must be configured and exercised before advertising response hours.
+Sandbox connected-account transfers use settled journal balances and global holds, require another finance approver, then submission and reconciliation. Cancellation is available only before any ambiguous submission. Compare reversal evidence and resulting liabilities before approving new funds. These are test transfers, not bank payouts. No live merchant, tax or payout arrangement is selected.
 
-## Refund and reconciliation
+## Privacy, scheduled work and incidents
 
-A finance operator verifies the original payment, delivered overlap evidence, prior refunds and approved policy. Use an idempotent refund request associated with that payment. Preserve the original charge and add compensating financial events.
+Use the [privacy guide](PRIVACY-RETENTION-OPERATIONS.md) for account closure, private receipt lookup, reviewed retention snapshots, holds/releases and failed-job retry. Destructive processing remains off until all policy durations are approved. External identity/provider account erasure is a separate missing process.
 
-After callback processing, compare charge, refund, fee, dispute and payout references with the provider. Investigate unmatched or inconsistent events before closing the exception. Safety permission alone does not authorize financial changes.
+The minute schedule reconciles sessions/claims, financial retries, outbox alerts, optional visitor expiry and reviewed privacy jobs. Monitor failed financial jobs, room provisioning/cleanup, refund spikes, webhook failures, booking conflicts, database errors and urgent cases. Alert routing separates safety from finance; failed staff notifications do not create infinite alert chains.
 
-## Expiry and retries
+For an incident: gate affected new operations, identify the environment/request and booking/provider references, assign an owner, preserve state/evidence, reconcile ambiguous provider effects using original keys, and record recovery before resuming. Never reset production data to make a test pass.
 
-The server checks authoritative expiry whenever it accesses a reservation. Configure the reconciliation runner separately so claims are also released when no clients are open. Monitor overdue claims and failed jobs.
+## Backup and restore
 
-A retry must reuse the original operation identifier. Before replaying a provider event, check the durable event state and current provider object. Never assume timestamps establish callback delivery order.
-
-## Backup and restoration
-
-For configured D1 environments, record the database name, schema revision and recoverable bookmark before a migration. Export a protected copy and test restoration to a separate database. Cloudflare provides plan-dependent Time Travel history. Verify the active plan's recovery window and rehearse the recovery procedure. [D1 restoration](https://developers.cloudflare.com/d1/reference/time-travel/) · [D1 limits](https://developers.cloudflare.com/d1/platform/limits/)
-
-Pause writes during a coordinated recovery. Restore the isolated copy, reapply the intended migrations, then verify ownership, foreign keys, claims, payment references and journal reconciliation. Re-enable traffic only after the restored state passes the recorded checks.
-
-## Incident record
-
-Record a correlation identifier, environment, affected booking/provider references, timeline, owner, decision and recovery evidence. Keep credentials, identity documents, private conversation content and full safety narratives out of general logs.
-
-[Readiness checklist](PRODUCTION-READINESS-CHECKLIST.md) and [threat model](SECURITY-THREAT-MODEL.md) define the remaining verification work.
-
+Before hosted migration, record schema versions and a protected export/bookmark. Restore to an isolated database while writes are coordinated; verify integrity, foreign keys, roles, ownership, claims, callbacks and journal reconciliation before traffic resumes. Local quiesced restore is tested. Hosted D1 restore and the plan's recovery window still need verification. [Cloudflare D1 restoration](https://developers.cloudflare.com/d1/reference/time-travel/).

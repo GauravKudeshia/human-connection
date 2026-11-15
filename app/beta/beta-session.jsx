@@ -39,6 +39,8 @@ export default function BetaSession({
   const [tip, setTip] = useState("");
   const [showRefund, setShowRefund] = useState(false);
   const [refundReason, setRefundReason] = useState("");
+  const [autoReplace, setAutoReplace] = useState(false);
+  const replacementAttempt = useRef(null);
   const quote =
     typeof booking?.quote === "string"
       ? JSON.parse(booking.quote)
@@ -56,6 +58,25 @@ export default function BetaSession({
       "FAILED_SERVICE",
     ].includes(booking.status);
   const completed = booking?.status === "COMPLETED";
+  useEffect(() => {
+    if (
+      !autoReplace ||
+      !customer ||
+      busy ||
+      !["DECLINED", "EXPIRED"].includes(booking?.status) ||
+      replacementAttempt.current === bookingId
+    )
+      return;
+    replacementAttempt.current = bookingId;
+    void run(
+      "replace-host",
+      { bookingId },
+      "Your choices were sent to another eligible host.",
+    ).then((result) => {
+      if (result?.booking) onOpen(result.booking);
+      else setAutoReplace(false);
+    });
+  }, [autoReplace, customer, busy, booking?.status, bookingId, run, onOpen]);
   async function checkout() {
     const result = await run("checkout", { bookingId });
     if (result?.clientSecret) setPayment({ ...result, purpose: "base" });
@@ -110,15 +131,26 @@ export default function BetaSession({
                 accepts.
               </p>
               {customer ? (
-                <button
-                  className="beta-secondary"
-                  disabled={busy}
-                  onClick={() =>
-                    run("cancel", { bookingId }, "Request cancelled.")
-                  }
-                >
-                  Cancel request
-                </button>
+                <div>
+                  <label className="beta-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={autoReplace}
+                      onChange={(event) => setAutoReplace(event.target.checked)}
+                    />
+                    If this host declines or the unpaid request expires, try
+                    another eligible host with my choices.
+                  </label>
+                  <button
+                    className="beta-secondary"
+                    disabled={busy}
+                    onClick={() =>
+                      run("cancel", { bookingId }, "Request cancelled.")
+                    }
+                  >
+                    Cancel request
+                  </button>
+                </div>
               ) : (
                 <div className="beta-actions">
                   <button
@@ -141,6 +173,32 @@ export default function BetaSession({
                   </button>
                 </div>
               )}
+            </div>
+          )}
+          {customer && ["DECLINED", "EXPIRED"].includes(booking.status) && (
+            <div className="beta-card">
+              <h2>Find another good fit.</h2>
+              <p>
+                We keep your experience, style, time, language and format. A
+                replacement request starts no payment.
+              </p>
+              <button
+                className="beta-primary"
+                disabled={busy}
+                onClick={async () => {
+                  const result = await run(
+                    "replace-host",
+                    { bookingId },
+                    "Replacement requested.",
+                  );
+                  if (result?.booking) onOpen(result.booking);
+                }}
+              >
+                Try another available host
+              </button>
+              <button className="beta-text" onClick={() => onRepeat(booking)}>
+                Adjust my choices
+              </button>
             </div>
           )}
           {booking.status === "ACCEPTED" && (

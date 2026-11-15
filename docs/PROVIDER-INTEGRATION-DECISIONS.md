@@ -1,8 +1,6 @@
 # Provider integration decisions
 
-The [continued implementation record](CONTINUED-IMPLEMENTATION-2026-11-14.md) supersedes the foundation status descriptions below for browser authentication, connected beta screens, host media, attendance, financial operations and notifications. Its evidence distinguishes local implementation from unexecuted provider-account verification.
-
-November 14, 2026. Decisions apply to the development branch. External service approval and live activation remain separate operator actions.
+November 15, 2026. Current status is [Master Prompt compliance](MASTER-PROMPT-COMPLIANCE.md). Provider interfaces are implemented and locally tested with injected responses; actual account configuration, provider approval and live activation remain separate actions. The user selected local verification.
 
 ## Database
 
@@ -20,9 +18,9 @@ Configure the API access token to carry the verifier's required verified-email c
 
 ## Payments
 
-Select Stripe sandbox as the first payment adapter boundary in `lib/marketplace/providers.mjs`. The adapter accepts test credentials and rejects live webhook events. The price policy and journal remain in application modules. The Connect merchant model, host onboarding and transfer design still need operator and processor decisions. [Stripe sandbox testing](https://docs.stripe.com/testing) · [Stripe Connect](https://docs.stripe.com/connect)
+Select Stripe sandbox as the first payment adapter boundary in `lib/marketplace/providers.mjs`. The adapter accepts test credentials and rejects live webhook events. The price policy and journal remain in application modules. The production Connect merchant model and bank-payout design still need operator and processor decisions. The branch now implements reviewed test connected-account references and default-off sandbox transfers with settled journal balances, independent approval, stable retries and reversal reconciliation. [Stripe sandbox testing](https://docs.stripe.com/testing) · [Stripe Connect](https://docs.stripe.com/connect)
 
-Connect offers charge models with different fund flows and refund/dispute responsibility. This branch does not select a final legal merchant model or initiate payouts. A paid pilot requires explicit service approval and a reviewed choice of charge and transfer structure. [Connect charge types](https://docs.stripe.com/connect/charges)
+Connect offers charge models with different fund flows and refund/dispute responsibility. This branch does not select a final legal merchant model or initiate bank payouts. Test connected-account transfers are explicitly different from bank payouts. A paid pilot requires explicit service approval and a reviewed choice of charge and transfer structure. [Connect charge types](https://docs.stripe.com/connect/charges)
 
 Provider callbacks require raw-body signature validation, event-ID deduplication and reconciliation to authoritative payment state. Stripe documents duplicate and unordered delivery, so a newer-looking timestamp cannot establish financial ordering by itself. [Stripe webhook behavior](https://docs.stripe.com/webhooks)
 
@@ -38,11 +36,18 @@ Daily credentials are server-only. Creating a real test room requires the explic
 
 ## Verification, uploads and notifications
 
-Identity-verification and introduction-media storage providers remain NOT STARTED. Choose a provider after confirming the service scope, jurisdiction, data retention and operator review process. Store verification references separately from public display information.
+A test-only Stripe Identity/connected-account lookup checks reference ownership, verified adult/U.S. evidence and payout eligibility without persisting identity documents or birth dates. Private R2 stores authenticated, bounded introduction clips and reviewed profile photos. Real authorized provider objects, media and reviewed operating process remain unconfigured. Identity verification is separate from experience suitability.
 
-A notification outbox is an application boundary. An actual email or push provider, delivery callbacks, retry worker and staffed alert destination require configuration and operational exercises. No local notification record establishes that a person received an alert.
+A durable outbox with leases, capped backoff and cutoff is implemented, with a test-only HTTPS delivery abstraction and scoped alert records. An authorized destination, hosted schedule, actual delivery receipt and staffed response require configuration and operational exercises. Stable delivery keys require destination idempotency. No local record establishes human receipt.
 
 ## Activation record
 
 Before any live activation, record the approver, provider account, environment, allowed service, merchant model, secret-storage location, test evidence and rollback owner. Secret values belong in the deployment secret store. The committed environment example contains placeholders.
 
+## Current provider-specific scope
+
+The managed browser flow includes hosted sign-in/recovery delegation, PKCE, nonce/state and encrypted revocable cookies using maintained JOSE. Configure and test the tenant before describing it as an operating identity integration.
+
+The Daily browser client, paid-room authorization, signed attendance pipeline, reconnection/deadline logic and cleanup exist. Actual two-browser/network/device verification remains unexecuted.
+
+Stripe base and tip refunds support cumulative partial/full provider evidence. Fees and disputes retain independent journal evidence. The adapter pins its tested API request contract; an API version header is not proof of account compatibility. No bank-payout dispatch, provider-side identity erasure, tax determination or live processor approval is claimed. [Stripe refund API](https://docs.stripe.com/api/refunds/create) · [Stripe transfer API](https://docs.stripe.com/api/transfers/create).

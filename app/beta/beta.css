@@ -689,3 +689,25 @@
     transition: none !important;
   }
 }
+
+.beta-profile-photo {
+  width: 10rem;
+  height: 10rem;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+  margin-bottom: 1rem;
+}
+.beta-wrap {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.beta-visit-consent {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: 1rem 1.25rem 2rem;
+}
+.beta-card form {
+  display: grid;
+  gap: 1rem;
+}

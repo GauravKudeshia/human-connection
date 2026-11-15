@@ -9,7 +9,7 @@ export function marketplaceConfig() {
     string | D1Database | R2Bucket | undefined
   >;
 }
-export async function marketplaceContext(request: Request) {
+export function marketplaceStorage() {
   const config = marketplaceConfig();
   if (
     config.HC_MARKETPLACE_ENABLED !== "true" ||
@@ -27,6 +27,10 @@ export async function marketplaceContext(request: Request) {
       "Staging storage is not configured.",
       503,
     );
+  return { config, db };
+}
+export async function marketplaceContext(request: Request) {
+  const { config, db } = marketplaceStorage();
   const identity = await createBrowserAuth(db, config).identity(request);
   const service = createMarketplace(db);
   const actor = await service.provisionIdentity(identity);

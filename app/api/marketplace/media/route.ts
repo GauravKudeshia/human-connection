@@ -1,6 +1,8 @@
 import { marketplaceContext } from "../../../../lib/marketplace/http-context";
 import { createOnboarding } from "../../../../lib/marketplace/onboarding.mjs";
 import { MarketplaceError } from "../../../../lib/marketplace/errors.mjs";
+import { createExperienceService } from "../../../../lib/marketplace/experience.mjs";
+import { consumeQuota } from "../../../../lib/marketplace/http-router.mjs";
 
 const headers = {
   "Cache-Control": "private, no-store",
@@ -33,16 +35,28 @@ async function context(request: Request) {
       authorize: value.service.authorize,
       bucket: config.MARKETPLACE_MEDIA,
     }),
+    experience: createExperienceService(value.db, {
+      authorize: value.service.authorize,
+      service: value.service,
+      bucket: config.MARKETPLACE_MEDIA,
+    }),
   };
 }
 export async function GET(request: Request) {
   try {
     const params = new URL(request.url).searchParams;
     const value = await context(request);
-    const media = await value.onboarding.media(value.actor, params.get("id"));
+    await consumeQuota(value.db, value.actor.id, "media-read", 1200);
+    const media =
+      params.get("kind") === "photo"
+        ? await value.experience.photo(value.actor, params.get("id"))
+        : await value.onboarding.media(value.actor, params.get("id"));
     if (params.get("metadata") === "1")
       return Response.json(
-        { contentType: media.contentType, transcript: media.transcript },
+        {
+          contentType: media.contentType,
+          transcript: "transcript" in media ? media.transcript : undefined,
+        },
         { headers },
       );
     return new Response(media.body, {
@@ -68,6 +82,7 @@ export async function POST(request: Request) {
     if (!request.headers.get("content-type")?.startsWith("application/json"))
       throw new MarketplaceError("JSON_REQUIRED", "JSON is required.", 415);
     const value = await marketplaceContext(request);
+    await consumeQuota(value.db, value.actor.id, "media-upload", 12);
     const config = value.config as unknown as Record<string, unknown>;
     const service = createOnboarding(value.db, {
       authorize: value.service.authorize,
@@ -127,17 +142,30 @@ export async function POST(request: Request) {
     const mediaBytes = Uint8Array.from(binary, (character) =>
       character.charCodeAt(0),
     );
-    const result = await service.uploadIntro(
-      value.actor,
-      {
-        bytes: mediaBytes,
-        contentType: body.contentType,
-        transcript: body.transcript,
-        consent: body.consent,
-        durationSeconds: body.durationSeconds,
-      },
-      request.headers.get("idempotency-key"),
-    );
+    const payload = {
+      bytes: mediaBytes,
+      contentType: body.contentType,
+      transcript: body.transcript,
+      consent: body.consent,
+      durationSeconds: body.durationSeconds,
+      altText: body.altText,
+    };
+    const result =
+      body.kind === "photo"
+        ? await createExperienceService(value.db, {
+            authorize: value.service.authorize,
+            service: value.service,
+            bucket: config.MARKETPLACE_MEDIA,
+          }).uploadPhoto(
+            value.actor,
+            payload,
+            request.headers.get("idempotency-key"),
+          )
+        : await service.uploadIntro(
+            value.actor,
+            payload,
+            request.headers.get("idempotency-key"),
+          );
     return Response.json({ result, mode: "staging" }, { headers });
   } catch (error) {
     return failure(error);

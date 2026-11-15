@@ -1,87 +1,57 @@
-# Production architecture
+# Production-oriented architecture
 
-The [continued implementation record](CONTINUED-IMPLEMENTATION-2026-11-14.md) supersedes the foundation status descriptions below for browser authentication, connected beta screens, host media, attendance, financial operations and notifications. Its evidence distinguishes local implementation from unexecuted provider-account verification.
-
-November 14, 2026. The branch extends the existing repository with an isolated staging boundary and preserves the shared customer interface and demo engine.
-
-## Runtime topology
+November 15, 2026. Current status and remaining limits are recorded in [Master Prompt compliance](MASTER-PROMPT-COMPLIANCE.md).
 
 ```mermaid
 flowchart LR
-  Visitor[Demo visitor] --> Pages[Static Pages bundle]
-  Pages --> BrowserState[Tab storage and shared demo engine]
-  Prototype[Owner-workspace prototype] --> DemoDB[Prototype D1 workspace]
-  Client[Configured staging client] --> API[Marketplace API gate]
-  API --> Identity[Configured issuer and JWKS]
-  API --> MPDB[Independent marketplace D1]
-  API --> Payment[Sandbox payment adapter]
-  MPDB --> Activities[Versioned shared activity state]
-  Payment --> Callback[Signed sandbox callback]
-  Callback --> MPDB
-  Media[Private media adapter] --> Daily[Authorized test account]
+  Demo[GitHub Pages demo] --> Local[Browser simulator and tab state]
+  Beta[Staging beta interface] --> Auth[Managed OIDC and encrypted cookie]
+  Beta --> API[Authorized HTTP router]
+  API --> DB[Isolated normalized D1]
+  API --> Media[Private R2 media]
+  API --> Payments[Stripe test adapter]
+  API --> Video[Daily test adapter]
+  Payments --> Hooks[Raw signed callbacks]
+  Video --> Hooks
+  Hooks --> DB
+  Cron[Scheduled Worker] --> Jobs[Expiry, financial retries, alerts, outbox and reviewed erasure]
+  Jobs --> DB
 ```
 
-The staging customer client and external identity tenant require configuration. The existing consumer UI continues to use its demo transport. A browser's fictional role selection supplies no marketplace permission.
+## Preserved application and separate authority
 
-## Existing application
+`app/connection-app.jsx`, the shared demo engine, `pages/transport.mjs` and `docs/index.html` preserve the public simulator. The owner-workspace prototype still uses its own Sites identity boundary and `demo_workspaces`. Its fictional role previews supply no marketplace authority.
 
-`app/connection-app.jsx` owns navigation and request orchestration. `lib/engine.mjs` owns the simulated lifecycle, receipts, feedback and local activities. `pages/transport.mjs` persists tab state and supports explicit temporary recovery after a storage failure. `lib/store.ts` separately persists the owner-workspace prototype in `demo_workspaces`.
+`app/beta/` uses `/api/marketplace`. `http-context.ts` fails closed unless the staging mode, enablement and independent binding exist. Hosted OIDC uses authorization code/PKCE, state/nonce, JOSE verification and encrypted HttpOnly cookie sessions; verified Bearer tokens are also supported. A trusted provisioning boundary owns actor provenance. Persisted active status/roles and recent MFA govern sensitive operations. Payloads/identity headers cannot manufacture actors.
 
-The Pages artifact contains browser code and authored media. Provider secrets and marketplace server modules remain outside its entry graph.
+`http-router.mjs` centralizes same-origin writes, bounded JSON, quotas, generic failures and request correlation. Logs contain method/status/code/time and a random request ID, not payloads, credentials, narratives or identity data.
 
-## Staging service boundary
+## Data and transaction model
 
-The marketplace routes use server configuration, independently verified actors and a separate D1 binding. The authentication verifier in `lib/marketplace/auth.mjs` checks RS256 signatures, exact issuer and intended API audience, expiry, not-before and verified-email claims. Roles and account status come from persisted application records.
+Eight additive migrations in `db/marketplace-migrations.mjs` define users/roles; customer eligibility/policy history; host profiles, certifications, verification references, drafts, introductions/photos and appeals; presence; bookings/claims/events; payments/callbacks/refund awards/tips/fees/disputes/transfer references; rooms/attendance/timing; activities; reviews/favorites/blocks/reports/cases; journal/audit/notification/alert records; analytics observations; and privacy requests/holds/leases.
 
-Host reviewer, safety, finance and administrator permissions are distinct. Recent verified MFA evidence is required for sensitive staff decisions. The existing Sites identity header adapter remains specific to the prototype.
+Unique host/customer/booking claims plus atomic D1 batches arbitrate conflicting reservations. Eligibility is checked inside claim creation and acceptance. Active customer status also guards booking creation. Accepted quotes freeze integer-cent totals, version, expiry and base allocation. A declined/expired **unpaid** request can be replaced without changing server-owned preferences; attempted hosts are excluded and replacement replay is linked durably.
 
-The route remains closed when its staging enablement, database binding or identity settings are absent. Managed sign-up, account recovery, provider logout and MFA enrollment still need a real tenant and deployed-client integration.
+D1 is retained because its prepared statements, constraints and atomic batch surface fit the current Worker. Actual SQLite transactions test invariants locally; Wrangler verifies the eight migrations against local D1. Those tests do not establish hosted contention, deployment limits or load behavior. Hosted D1 testing may justify a coordination primitive or another relational deployment; no speculative stack migration is introduced.
 
-## Data and consistency
+## Financial and delivery facts
 
-`db/marketplace.sql` defines additive `mp_*` tables for users and roles, private host verification references, public profile attributes, per-experience certifications, presence, bookings, claims, events, blocks, favourites, reports, activities, payment records, webhook records, journal entries, refund reviews, feedback, notifications and audit events.
+`finance.mjs` records verified sandbox captures separately from delivery. Base/tip refund totals move monotonically, append immutable deltas, preserve original events and compensate earned allocations proportionally. Immutable awards and dispatch snapshots freeze reviewed refund amounts. Fees/disputes remain separate from principal. `payouts.mjs` reserves settled journal liabilities, requires another finance approver and reconciles test connected-account transfer/reversal references. It does not send bank payouts.
 
-Database constraints protect distinct users and references. A claim is unique by host, customer and booking. Server quote snapshots preserve authoritative price terms. Mutations must keep booking evidence and claims in one atomic database operation.
+`sessions.mjs` binds paid bookings to private rooms and short-lived participant grants. It checks both account eligibility and host certification before/after provider token creation. Signed provider attendance determines overlapping delivery, including unioning simultaneous connections. Reconnect does not restart time. Zero-attendance paid bookings expire even when no room was requested. Insufficient delivery opens review rather than awarding a full completed session. Provider room cleanup is retried.
 
-The local integration harness uses actual SQLite with a D1-compatible prepared-statement and batch surface. Hosted D1 concurrency and failure characteristics still require a staging test. Production migration metadata, retention jobs and reconciliation scheduling require further operational implementation.
+Activities use participant-owned server revisions and reject stale writes. Rating, private quality feedback, value and safety reports remain separate. Only eligible completed sessions contribute ordinary public statistics.
 
-The schema preserves the prototype's tables. Apply it to a separate marketplace database. A rollback should restore a verified isolated snapshot or disable the new boundary while preserving its records.
+## Operations, analytics and privacy
 
-| Requested logical area | Current representation and remaining work |
-| --- | --- |
-| User, roles and customer profile | Users and roles are persisted. Detailed customer eligibility, preferences and versioned acceptance history still need implementation. |
-| Host profile, verification and certification | Separate profile, verification-reference and experience-certification tables. Introduction approval and appeal history remain pending. |
-| Availability and presence | Availability flag and latest heartbeat are persisted. Schedules and media-provider attendance evidence remain pending. |
-| Booking and participants | Booking contains authoritative customer and host foreign keys. A separate participant-presence lifecycle remains pending. |
-| Payment and events | Payment, callback, refund and journal records exist. Full fee, dispute, tip, transfer and payout workflows remain pending. |
-| Video room and session presence | No persisted provider room or attendance model is implemented yet. |
-| Review, favourite and block | Dedicated records exist. Genuine public statistics require actual eligible delivery evidence. |
-| Safety report and case | Report status, assigned reviewer and case event records represent the initial case workflow. |
-| Activity, webhook, audit and notification | Dedicated records exist. Background processing, delivery callbacks and retention workers remain pending. |
+Scoped staff services review hosts, media, cases, refunds, transfer exceptions, account status and privacy requests. Safety reviewers can protectively suspend an account only through an assigned open case; finance permission does not grant safety narratives. Revocation removes room eligibility and new matching; pending cleanup remains explicit.
 
-## Financial boundary
+The outbox leases deliveries, retains stable idempotency keys, bounds backoff and stops after five attempts. The scheduled Worker reconciles expiry/financial work, scoped alerts, visitor expiry, quotas and reviewed privacy processing. Alert outbox failures cannot recursively create alert chains. Actual scheduling/delivery/receipt still need staging evidence.
 
-`lib/marketplace/pricing.mjs` snapshots the bounded beta policy, integer cents, quote expiry and allocation parameters. Current defaults are $10 for 15 minutes, $18 for 30 minutes and a 70% base allocation to the host. Tax is explicitly unconfigured.
+`analytics.mjs` derives outcomes from records and authoritative event triggers, and defines match latency, mature 7/30-day repeats, rebooking, observed host utilization and journal contribution. Visitor conversion is opt-in, unlinkable to account IDs and labeled for incomplete retained coverage. No missing-data result is replaced by an invented success rate.
 
-`lib/marketplace/providers.mjs` constructs test-only payment requests and verifies signed sandbox callbacks. `lib/marketplace/finance.mjs` owns the associated persisted payment state and deduplicated financial events.
+Account closure and erasure are separate. Closure revokes access immediately; private erasure is leased, policy-versioned and held for unresolved safety/finance/legal evidence. Identity hashes block reprovisioning, including concurrent closure. R2 deletion and database redaction cannot be one transaction; [privacy operations](PRIVACY-RETENTION-OPERATIONS.md) documents the boundary.
 
-Financial journal rows reject updates and deletion. Capture, refund and corrective events retain their history. Provider success and service delivery remain separate facts. The live merchant model, actual fees, disputes, host transfers and payouts need further integration and approval.
+## Release and recovery
 
-## Media and activities
-
-The Daily adapter builds private test-room and participant-token requests. Credentials remain server-side. Room transcription storage and token recording controls, automatic recording and automatic transcription are disabled using the documented properties. A real media client, authoritative provider presence and two-browser delivery evidence remain integration work.
-
-The consumer demo supports authored activity rounds, answer reveal, completion and replay. Those actions stay in the simulation. The marketplace boundary separately persists a participant-authorized activity revision so conflicting writes can be rejected.
-
-## Feedback and analytics
-
-The demo records host ratings, private quality feedback, worth-it responses and safety reports separately. Operations shows value counts over completion-date ranges. Eligible completed paid simulations supply the denominator. Yes/no responses and skipped responses remain distinct.
-
-These local aggregates describe the fictional workspace. Acquisition funnels, repeat-purchase rates, host utilization and contribution calculations need genuine server events and configured analytics.
-
-## Configuration and release
-
-Use the placeholder values in `.env.example` and the configuration descriptions in the root README. Marketplace database and identity configuration must be supplied independently of the demo.
-
-Development stays on the feature branch. The current request does not authorize a change to `main`, a production deployment or real money movement. [Provider decisions](PROVIDER-INTEGRATION-DECISIONS.md) and [readiness checklist](PRODUCTION-READINESS-CHECKLIST.md) describe the next integration gates.
-
+The static bundle cannot run server routes. The example staging configuration has isolated bindings, no secrets and disabled defaults. Local scripts never deploy. Restore to a separate database and verify ownership, claims, callback/financial evidence and foreign-key integrity before traffic resumes. Production activation remains dependent on provider/merchant approval, policies, staff coverage, hosted verification and explicit authorization.

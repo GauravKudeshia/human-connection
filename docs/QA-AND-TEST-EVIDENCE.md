@@ -1,67 +1,43 @@
 # QA and test evidence
 
-The [continued implementation record](CONTINUED-IMPLEMENTATION-2026-11-14.md) supersedes the foundation status descriptions below for browser authentication, connected beta screens, host media, attendance, financial operations and notifications. Its evidence distinguishes local implementation from unexecuted provider-account verification.
+November 15, 2026 · development branch `feature/research-driven-beta-foundation`.
 
-November 14, 2026. Evidence is recorded against the development branch. All fixtures use fictional accounts and activity.
+## Baseline and current automated checks
 
-## Baseline
+The original audit baseline had 58 passing tests. The previous continuation had 130. The current suite has **195 passing tests, zero failures/skips**. The original regressions remain. `npm run lint`, TypeScript (`node node_modules/typescript/bin/tsc --noEmit`), `npm run build` and `npm run build:pages` pass. The Worker retains its existing informational route-classification notice. The original disposable prototype HTTP integration suite also passed separately (1 test). The current dependency advisory scan reports zero known vulnerabilities. No dependency was added in this continuation.
 
-Before changing existing features, the following commands completed successfully.
+`npm run db:marketplace:local` applies all eight canonical migrations successfully through local Wrangler D1. The migration list is shared with the test adapter. A quiesced SQLite restore verifies integrity, foreign keys, roles, ownership and active-claim uniqueness. Hosted D1 timing/load/restore remains untested.
 
-| Command | Result |
-| --- | --- |
-| `npm test` | 58 passed, zero failures |
-| `npm run lint` | Passed |
-| `node node_modules/typescript/bin/tsc --noEmit` | Passed |
-| `npm run build:pages` | Passed, approximately 1,400 KiB standalone HTML |
-| `npm run build` | Passed with existing informational root-route classification notice |
+## Meaningful test boundaries
 
-## New test boundaries
+| Sources under `tests/`                                 | Verified local behavior                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Original engine/browser transport/V1.3/evolution tests | Existing demo journeys, preferences, recovery, receipts, value separation, activities and demo/live boundaries                                                                                                                                                                                                                           |
+| Marketplace auth/browser-auth/beta-api                 | JOSE claims, local OIDC/PKCE exchange, nonce/state, cookie revocation, MFA, unauthorized/stale client results and retries                                                                                                                                                                                                                |
+| Marketplace store/experience                           | Eligibility/certification/heartbeat/blocks, atomic global claims, expiry, role/object access, shared revisions, favorites/replacement, drafts, genuine-statistic denominators and reviewed photos                                                                                                                                        |
+| Marketplace finance/payouts                            | Quotes, integer boundaries, signature/replay/order, capture/refund compensation, partial/full base and tip totals, fees/disputes, immutable awards, transfer holds/maker-checker/stable retry/reversal                                                                                                                                   |
+| Marketplace sessions                                   | Paid/private participant grants, both active accounts, closing during token request, signed attendance, reconnect/overlap, independent ending, no-room/no-join failure and cleanup                                                                                                                                                       |
+| Marketplace operations/analytics                       | Bounded outbox retry/leases, no alert loops, scope/privacy, UTC metrics, mature repeat cohorts, latency, utilization interval unions and opt-in unlinked visitor expiry/coverage                                                                                                                                                         |
+| Marketplace privacy                                    | Disabled destructive default, reviewed immutable retention snapshot, immediate closure/revocation, concurrent capture retry, identity reprovision race, holds/leases, cleanup retry and preserved financial/policy/audit evidence                                                                                                        |
+| Marketplace boundaries/HTTP handlers                   | Origin/JSON/quota/log privacy, scoped account suspension, draft race, refund review reopening, receipts and optional visitor-cookie revocation                                                                                                                                                                                           |
+| Marketplace journeys                                   | Actual HTTP Request/Response router through all three experiences, host accept, local signed fixture payment, private token, trusted overlap, shared activity, feedback/favorite/rebook; HTTP contention, decline/expiry, paid-no-join with/without room, report/block, privacy/forged headers and repeated/out-of-order signed fixtures |
 
-| Test source | Coverage |
-| --- | --- |
-| `tests/evolution-experience.test.mjs` | Seven passing tests for independent value/private/public feedback, completed-session gates, optional skip, denominators, date bounds, narrative removal, activity revision, replay and storage recreation |
-| `tests/marketplace-finance.test.mjs` | Server quote policy, sandbox credentials, stable payment idempotency, captured/refunded financial evidence, event ordering, provider mismatches, signatures and private media request properties |
-| Marketplace integration tests | Normalized schema, actor roles, global claims, expiry, host eligibility, blocks, restricted safety/refund actions and shared activity revisions |
-| Existing domain/transport tests | Original reservation, payment simulation, ratings, tip, receipt, privacy, closure and retry regressions |
+These use actual SQLite transactions and application services. Provider responses and identities are explicit local fixtures. Passing them does **not** establish an operating managed tenant, actual Stripe checkout or a real Daily call.
 
-The financial tests use actual SQLite persistence with injected provider responses. That establishes application contract behavior and accounting changes. No provider test-account checkout or real media session is represented as executed.
+## Browser verification
 
-The normalized service integration harness uses `node:sqlite` behind a D1-compatible statement and atomic batch adapter. Hosted D1 timing, provider delivery and managed-identity behavior require separate staging evidence.
+One browser engine checked customer, host and staff views at **320, 390, 768 and 1440** pixels, with no horizontal overflow. The standalone UI harness is visibly labeled **LOCAL UI TEST FIXTURE — Fictional accounts and records**. It adapts Next link/image components and injects fictional API responses; it is not a deployment or provider end-to-end test.
 
-## Browser verification record
+The continuation verified host quality counts and photo/intro controls, account-closure disclosures and disabled-by-default action, partial-refund input/required explanation, disabled sandbox-transfer state, mature repeat/latency/utilization displays, UTC dates and keyboard focus/navigation. No warning/error logs were observed in the fixture during the final checks. The actual Worker `/beta` was checked separately and clearly showed the unconfigured account state and laughing imagery, with no browser error logs. A screenshot is saved in workspace outputs as `human-connection-master-audit-preview.png`.
 
-Executed browser evidence appears in the final branch verification below. Physical and specialist checks remain independent staging work.
+The previous browser pass completed each public simulated experience journey. The new automated router journeys add server integration evidence. Neither substitutes for two actual provider-connected browsers. Comprehensive physical-device, independent-engine, specialist screen-reader and in-call accessibility remain unverified.
 
-## Final branch verification
+## Independent second-pass findings resolved
 
-- All 87 automated tests passed, including the original 58 regressions, seven experience tests, two signed-identity tests, nine shared-store tests and eleven payment/provider tests.
-- The existing HTTP integration suite passed against the disposable local prototype.
-- The normalized SQL migration executed successfully with local D1 through Wrangler.
-- The unconfigured marketplace HTTP endpoint returned a controlled `MARKETPLACE_DISABLED` error.
-- ESLint, TypeScript, static Pages build and Worker build passed. The existing informational route-classification notice remains.
-- The full dependency advisory scan reported zero known vulnerabilities.
+Review found and fixed cumulative-refund rounding at supported large amounts; remaining-principal review reopening and replay; paid bookings never expiring if no room was requested; capture racing account closure; closed customer racing host token grants; erased identity reprovisioning; private-draft/upload resurrection; and recursive alert-delivery failure chains. Each material path has targeted local regression coverage. R2/database erasure atomicity remains an explicitly documented infrastructure limit.
 
-Browser checks used one engine at 320, 390, 768 and 1440 pixels with no homepage horizontal overflow. All three simulated journeys reached completion. Make Me Laugh verified persisted prompt progression after reload, independent value and private feedback, and repeat preferences. Hear Me Out verified browsing into a compatible host and the bounded listening activity. Distract Me verified trivia answer reveal, favoriting and repeat selection. The preview console recorded no errors or warnings during these journeys.
+## External evidence still required
 
-Independent review found and corrected a payment-success race at reservation expiry, a checkout secret returned after concurrent cancellation, a missing provider-originated refund queue record and allocation rounding at large safe integers. Each financial path has a regression test. The tests use actual SQLite transactions and injected provider responses.
+Actual managed account creation/recovery/MFA/JWKS rotation; Stripe sandbox SDK checkout/refund/dispute/transfer account evidence; Daily two-browser devices/network recovery; actual notification/alert receipt; hosted concurrency/load/restore; physical-device, independent-engine, specialist accessibility and infrastructure penetration review. The user selected local verification, so none of these are recorded as passed.
 
-A screenshot of the reviewed homepage is saved beside the workspace outputs as `human-connection-research-preview.png`. The GitHub Pages bundle is built for review on the development branch. The branch adds a scheduled expiry handler, while the staging schedule and provider accounts still require configuration.
-
-
-Physical-device, specialist screen-reader and independent browser-engine testing are unavailable in the current environment. Those checks remain listed in the readiness checklist.
-
-## Remaining end-to-end exercises
-
-| Scenario | Verification still needed |
-| --- | --- |
-| Real managed account onboarding and recovery | Configured identity tenant and frontend flow |
-| Distinct customer and host in a provider room | Authorized video account and two authenticated browsers |
-| Payment succeeds but participants fail to join | Actual provider sandbox callback and presence pipeline |
-| Live provider failure and reconnect | Device/network test through integrated media client |
-| Provider webhook repeats or arrives out of order | Real sandbox event destination, in addition to local event tests |
-| Notification retries and alert receipt | Delivery provider, scheduled worker and operator destination |
-| Hosted contention and restore | Isolated staging D1 deployment and verified recovery copy |
-
-Use the root README for current commands and configuration placeholders. [Readiness checklist](PRODUCTION-READINESS-CHECKLIST.md) records the go/no-go criteria.
-
+Production launch, real money, stranger calls, bank payouts, provider account erasure, policy approval and staffed service remain outside the executed evidence. See [compliance](MASTER-PROMPT-COMPLIANCE.md) and [readiness](PRODUCTION-READINESS-CHECKLIST.md).

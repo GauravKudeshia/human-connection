@@ -373,3 +373,35 @@ test("an urgent report recorded before media termination still closes the provid
   );
   f.db.close();
 });
+
+test("a host cannot obtain entry when the customer closes during provider token issuance", async () => {
+  const f = fixture();
+  f.provider.participantToken = async () => {
+    f.db.sqlite
+      .prepare("UPDATE mp_users SET status='CLOSED' WHERE id='customer'")
+      .run();
+    return { token: "withheld-fixture-token" };
+  };
+  await assert.rejects(
+    () => f.service.roomToken({ id: "host" }, "booking"),
+    (e) => e.code === "PARTICIPANT_UNAVAILABLE",
+  );
+  assert.equal(
+    f.db.sqlite.prepare("SELECT status FROM mp_video_rooms").get().status,
+    "CLOSED",
+  );
+  f.db.close();
+});
+
+test("a suspended customer prevents the other participant creating a room", async () => {
+  const f = fixture();
+  f.db.sqlite
+    .prepare("UPDATE mp_users SET status='SUSPENDED' WHERE id='customer'")
+    .run();
+  await assert.rejects(
+    () => f.service.roomToken({ id: "host" }, "booking"),
+    (e) => e.code === "PARTICIPANT_UNAVAILABLE",
+  );
+  assert.equal(f.calls.length, 0);
+  f.db.close();
+});

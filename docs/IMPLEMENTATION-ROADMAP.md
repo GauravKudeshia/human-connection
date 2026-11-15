@@ -1,63 +1,25 @@
 # Implementation roadmap
 
-The [continued implementation record](CONTINUED-IMPLEMENTATION-2026-11-14.md) supersedes the foundation status descriptions below for browser authentication, connected beta screens, host media, attendance, financial operations and notifications. Its evidence distinguishes local implementation from unexecuted provider-account verification.
+November 15, 2026. [Master Prompt compliance](MASTER-PROMPT-COMPLIANCE.md) is the current capability record. Work remains on `feature/research-driven-beta-foundation`.
 
-November 14, 2026. Work follows the existing repository and its three experience model. Development stays on `feature/research-driven-beta-foundation`.
+## Locally implemented and verified
 
-## Branch scope
+The branch now contains managed browser-auth code; customer/host/staff screens; normalized persistence; atomic matching and reservations; approval/certification/identity-reference workflows; introductions and moderated photos; authoritative quotes; sandbox capture/webhooks; partial/full base and tip refunds; fee/dispute/transfer accounting; private media and attendance; shared activities; value feedback and rebooking; reporting, blocking and protective suspension; durable retries/notifications/alerts; retention/erasure and holds; and the requested commercial analytics definitions.
 
-| Capability | Branch disposition | Evidence |
-| --- | --- | --- |
-| Existing experience journey, matching, refunds and receipts | Preserved demo behavior | Original 58 regression tests and shared engine |
-| Worth-it question and private quality feedback | IMPLEMENTED AND TESTED in the demo | `lib/engine.mjs`, `tests/evolution-experience.test.mjs` |
-| Value counts with sample sizes and date range | IMPLEMENTED AND TESTED in the demo | `valueFeedbackSummary`, Operations overview and feedback tests |
-| Three-round optional activities | IMPLEMENTED AND TESTED in the demo | `lib/activities.mjs`, activity revision tests |
-| Server quote and allocation policy | Implemented local foundation | `lib/marketplace/pricing.mjs`, finance tests |
-| Signed identity, persisted roles and owned resources | Isolated staging foundation | `lib/marketplace/auth.mjs`, marketplace store and tests |
-| Normalized state, global claims and expiry | Isolated staging foundation | `db/marketplace.sql`, marketplace store and SQLite integration tests |
-| Host application, verification reference and experience certification | Isolated staging foundation | Marketplace host actions and eligibility queries |
-| Persisted report, block and restricted review actions | Isolated staging foundation | Marketplace safety and finance permissions |
-| Shared activity revisions | Isolated staging foundation | Participant-authorized activity state and revision checks |
-| Stripe sandbox adapter and signed callback handling | IMPLEMENTED BUT NOT CONFIGURED | Provider and finance modules, injected-response tests |
-| Daily private-room/token adapter | IMPLEMENTED BUT NOT CONFIGURED | Provider module and request-contract tests |
-| Identity-verification provider adapter | IMPLEMENTED BUT NOT CONFIGURED | Sandbox Identity and account lookup with host ownership references, verified by injected provider evidence |
-| Host intro upload, consent and moderation | IMPLEMENTED AND TESTED locally | Bounded private R2 upload, transcripts, consent, review, approved playback and appeals |
-| Customer adult/U.S. eligibility and policy-acceptance history | IMPLEMENTED AND TESTED locally | Reservation eligibility gate and append-only acceptance records |
-| Media client, attendance and overlap | IMPLEMENTED BUT NOT CONFIGURED | Daily client, participant grants, signed attendance, reconnection and delivery tests. Actual two-browser provider verification remains |
-| Provider fees and disputes | IMPLEMENTED AND TESTED locally | Immutable principal, fee and dispute movements with sandbox reconciliation fixtures |
-| Transfers and payouts | REQUIRES APPROVAL and further implementation | Merchant structure, payout authorization and operating policy remain prerequisites |
-| Managed sign-up, recovery, logout and MFA | IMPLEMENTED BUT NOT CONFIGURED | Hosted OIDC/PKCE flow, encrypted revocable browser session and provider-managed recovery |
-| Background scheduling and notification delivery | IMPLEMENTED BUT NOT CONFIGURED | Leased retries, bounded backoff, alerts and scheduled processing. Actual test delivery and staging scheduling remain |
-| Live operation | REQUIRES APPROVAL | See readiness checklist |
-
-“Foundation” identifies code that can be exercised locally. The [QA record](QA-AND-TEST-EVIDENCE.md) specifies which boundaries were actually tested.
+The last continuation specifically closed the previously named engineering gaps in partial refunds, local retention/deletion and repeat/latency/utilization analytics. It added test connected-account transfer dispatch/reconciliation. **Bank payouts remain a separate unimplemented production operation dependent on the approved merchant structure.**
 
 ## Next dependency sequence
 
-1. Configure an isolated staging deployment and identity tenant. Exercise the HTTP routes with independent customer, host, reviewer, safety and finance accounts.
-2. Review and provision host eligibility evidence. Integrate secure introductions and the chosen identity provider before adding genuine host supply.
-3. Configure Stripe sandbox checkout and signed callback delivery. Reconcile capture, refund and exceptions against the provider account.
-4. Connect the customer/host frontend to the staging routes. Integrate private media and establish delivery with participant presence.
-5. Configure scheduled expiry/reconciliation and durable notification delivery. Exercise staff alert receipt and incident ownership.
-6. Complete retention, backup restoration, operational monitoring and specialist accessibility verification.
-7. Seek the stated approvals and explicit authorization for a controlled live pilot.
+1. Configure an isolated identity tenant and authorized staging D1/R2. Verify onboarding, recovery, MFA, ownership and status transitions through actual accounts.
+2. Exercise authorized Stripe sandbox checkout, cumulative refunds, tips, fees, disputes and connected-account transfers against real provider objects. Confirm the service's permitted merchant model before designing/activating production bank payouts.
+3. Exercise Daily using two independent authenticated participants, device permissions, network interruption, reconnection, end/report/block and shared activities.
+4. Run hosted contention, load, webhook replay/order, alert delivery and an isolated export/restore drill. Verify schedule ownership and incident recovery.
+5. Complete physical-device, independent-browser, specialist accessibility and infrastructure security review.
+6. Approve policies, age/identity assurance, host training/auditions, safety coverage, retention/deletion exceptions and provider-side erasure procedures. Populate genuine host supply only through that process.
+7. Record evidence and responsible owners in the readiness checklist. Seek explicit authorization before production publishing, live charges, real stranger calls, payouts or customer communications.
 
-## External dependencies
-
-| Dependency | What it blocks |
-| --- | --- |
-| Identity tenant and client configuration | Real sign-in, recovery, sign-out and staff MFA exercise |
-| Independent D1 staging binding and authorized deployment | Hosted multi-user verification and operational restore drill |
-| Payment test account and webhook endpoint | Actual sandbox end-to-end checkout and refund evidence |
-| Processor service approval and merchant model | Any live payment, transfer or payout activation |
-| Authorized video test account | Two-browser private room, device and network delivery tests |
-| Verification vendor and reviewed host process | Genuine host eligibility and identity claims |
-| Staff coverage and reviewed incident guidance | Any promised live safety response |
-| Approved privacy, refund and retention policies | Production operations and deletion behavior |
+The user selected local verification. Missing credentials or operational approval do not count as passed tests. Local scripts do not create hosted resources.
 
 ## Later experiments
 
-Gift sessions, referral credits, premium host pricing, membership, additional languages and geographic expansion remain backlog items. Evaluate them after reliable delivery and genuine value feedback exist.
-
-The three primary experiences, optional activities and respectful non-clinical boundaries remain the product focus. No social feed, unsolicited stranger messaging or default recording is introduced.
-
+Gift sessions, referrals, premium hosts, credit membership, creator acquisition, additional languages and geographic expansion remain P2 backlog. They do not displace reliability or the adults-only, U.S.-first, platonic, non-clinical scope.

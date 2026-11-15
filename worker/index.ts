@@ -5,6 +5,10 @@ import { createMarketplace } from "../lib/marketplace/store.mjs";
 import { createSessionService } from "../lib/marketplace/sessions.mjs";
 import { createPaymentService } from "../lib/marketplace/finance.mjs";
 import {
+  createPrivacy,
+  privacyPolicyFromConfig,
+} from "../lib/marketplace/privacy.mjs";
+import {
   createStripeSandbox,
   createDailyTestProvider,
 } from "../lib/marketplace/providers.mjs";
@@ -58,6 +62,21 @@ const worker = {
             : undefined,
       });
       await operations.refreshAlerts();
+      await operations.pruneAnalytics();
+      const privacy = createPrivacy(db, {
+        bucket: config.MARKETPLACE_MEDIA,
+        policy: privacyPolicyFromConfig(config),
+      });
+      await privacy.run({ limit: 10 });
+      await privacy.sweepExpired();
+      await (db as D1Database)
+        .prepare("DELETE FROM mp_request_limits WHERE window<?")
+        .bind(Math.floor(Date.now() / 60000) - 2)
+        .run();
+      await (db as D1Database)
+        .prepare("DELETE FROM mp_rate_limits WHERE window<?")
+        .bind(Math.floor(Date.now() / 60000) - 2)
+        .run();
       if (config.NOTIFICATION_MODE === "sandbox")
         await operations.dispatch({ limit: 20 });
     }

@@ -2,6 +2,13 @@
 import React, { useEffect, useState } from "react";
 import { experiences, stylesFor } from "../../lib/catalog.mjs";
 import { human, money } from "./beta-api.mjs";
+import {
+  HostQuality,
+  ProfilePhotoUpload,
+  TransferWorkspace,
+  PhotoReview,
+  PrivacyReview,
+} from "./beta-additions";
 
 export function useResource(api, resource, id, revision, filters) {
   const [snapshot, setSnapshot] = useState({ key: null, data: null });
@@ -49,6 +56,7 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
   const { data: bookings } = useResource(api, "bookings", null, revision);
   const { data: intros } = useResource(api, "my-intros", null, revision);
   const { data: earnings } = useResource(api, "host-earnings", null, revision);
+  const { data: draft } = useResource(api, "host-draft", null, revision);
   const [available, setAvailable] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
@@ -151,6 +159,7 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
           </p>
         </div>
       )}
+      {isHost && <HostQuality api={api} revision={revision} />}
       {application && (
         <article className="beta-card">
           <span className="beta-status">{human(application.status)}</span>
@@ -164,8 +173,15 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
         </article>
       )}
       {(!application || ["DRAFT", "REJECTED"].includes(application.status)) && (
-        <HostApplication run={run} busy={busy} application={application} />
+        <HostApplication
+          key={JSON.stringify(draft)}
+          run={run}
+          busy={busy}
+          application={application}
+          draft={draft}
+        />
       )}
+      {application && <ProfilePhotoUpload api={api} revision={revision} />}
       {application && (
         <div className="beta-form-grid">
           <section className="beta-card">
@@ -368,12 +384,16 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
     </section>
   );
 }
-function HostApplication({ run, busy, application }) {
-  const [name, setName] = useState(application?.display_name || "");
-  const [bio, setBio] = useState(application?.biography || "");
-  const [languages, setLanguages] = useState(["English"]);
-  const [formats, setFormats] = useState(["video"]);
-  const [styles, setStyles] = useState([]);
+function HostApplication({ run, busy, application, draft }) {
+  const [name, setName] = useState(
+    draft?.displayName || application?.display_name || "",
+  );
+  const [bio, setBio] = useState(
+    draft?.biography || application?.biography || "",
+  );
+  const [languages, setLanguages] = useState(draft?.languages || ["English"]);
+  const [formats, setFormats] = useState(draft?.formats || ["video"]);
+  const [styles, setStyles] = useState(draft?.styles || []);
   const [accepted, setAccepted] = useState(false);
   const toggle = (list, item) =>
     list.includes(item)
@@ -480,6 +500,20 @@ function HostApplication({ run, busy, application }) {
         </span>
       </label>
       <button
+        type="button"
+        className="beta-secondary"
+        disabled={busy}
+        onClick={() =>
+          run(
+            "host-draft",
+            { displayName: name, biography: bio, languages, formats, styles },
+            "Application draft saved.",
+          )
+        }
+      >
+        Save draft
+      </button>
+      <button
         className="beta-primary"
         disabled={
           busy ||
@@ -501,16 +535,28 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
     tabs.push(
       ["applications", "Host reviews"],
       ["intros", "Introductions"],
+      ["photos", "Profile photos"],
       ["appeals", "Appeals"],
     );
   if (roles.some((role) => ["safety", "admin"].includes(role)))
-    tabs.push(["safety", "Safety"], ["alerts", "Operational alerts"]);
+    tabs.push(
+      ["safety", "Safety"],
+      ["accounts", "Account status"],
+      ["alerts", "Operational alerts"],
+    );
   if (roles.some((role) => ["finance", "admin"].includes(role)))
     tabs.push(
       ["refunds", "Refunds"],
       ["financial-exceptions", "Payment exceptions"],
+      ["transfers", "Sandbox transfers"],
     );
-  if (roles.includes("admin")) tabs.push(["analytics", "Analytics"]);
+  if (roles.includes("admin"))
+    tabs.push(
+      ["analytics", "Analytics"],
+      ["privacy", "Privacy requests"],
+      ["booking-oversight", "Bookings"],
+      ["availability", "Host availability"],
+    );
   const [selected, setSelected] = useState(null);
   const [from, setFrom] = useState(() =>
     new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10),
@@ -624,16 +670,35 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
         <p className="beta-card">There is nothing waiting in this queue.</p>
       )}
       {resource === "analytics" && data && <AnalyticsSummary data={data} />}
+      {resource === "transfers" && data && (
+        <TransferWorkspace data={data} run={run} busy={busy} />
+      )}
       {Array.isArray(data) &&
-        data.map((record) => (
-          <StaffRecord
-            key={record.id || record.user_id}
-            resource={resource}
-            record={record}
-            run={run}
-            busy={busy}
-          />
-        ))}
+        data.map((record) =>
+          resource === "photos" ? (
+            <PhotoReview
+              key={record.id}
+              record={record}
+              run={run}
+              busy={busy}
+            />
+          ) : resource === "privacy" ? (
+            <PrivacyReview
+              key={record.id}
+              record={record}
+              run={run}
+              busy={busy}
+            />
+          ) : (
+            <StaffRecord
+              key={record.id || record.user_id}
+              resource={resource}
+              record={record}
+              run={run}
+              busy={busy}
+            />
+          ),
+        )}
     </section>
   );
 }
@@ -647,6 +712,7 @@ function StaffRecord({ resource, record, run, busy }) {
   const [identityReference, setIdentityReference] = useState("");
   const [payoutReference, setPayoutReference] = useState("");
   const [certificationStatus, setCertificationStatus] = useState("APPROVED");
+  const [refundAmount, setRefundAmount] = useState("");
   let decisions = [];
   if (resource === "applications")
     decisions = [
@@ -677,7 +743,18 @@ function StaffRecord({ resource, record, run, busy }) {
       ["APPROVED", "Reopen review"],
       ["REJECTED", "Reject appeal"],
     ];
+  if (resource === "accounts" && record.status !== "CLOSED")
+    decisions =
+      record.status === "ACTIVE"
+        ? [["SUSPENDED", "Suspend account"]]
+        : [["ACTIVE", "Reinstate account (administrator)"]];
   function decide(status) {
+    if (resource === "accounts")
+      return run(
+        "account-status",
+        { userId: record.id, status, reason },
+        "Account status updated.",
+      );
     if (resource === "applications")
       return run(
         "host-review",
@@ -693,7 +770,14 @@ function StaffRecord({ resource, record, run, busy }) {
     if (resource === "refunds")
       return run(
         "refund-decision",
-        { refundId: record.id, status, reason },
+        {
+          refundId: record.id,
+          status,
+          reason,
+          ...(refundAmount
+            ? { amountCents: Math.round(Number(refundAmount) * 100) }
+            : {}),
+        },
         "Refund decision saved.",
       );
     if (resource === "intros")
@@ -728,6 +812,23 @@ function StaffRecord({ resource, record, run, busy }) {
           <strong>{human(record.severity)}</strong>
         </p>
       )}
+      {resource === "booking-oversight" && (
+        <p>
+          {record.experience} · {record.duration} minutes ·{" "}
+          {money(record.amount_cents)} · Customer {record.customer_id} · Host{" "}
+          {record.host_id}
+        </p>
+      )}
+      {resource === "availability" && (
+        <p>
+          {record.available ? "Availability enabled" : "Unavailable"} · Last
+          heartbeat{" "}
+          {record.last_seen_at
+            ? new Date(record.last_seen_at).toLocaleString()
+            : "not recorded"}
+          . Matching also requires current eligibility and a recent heartbeat.
+        </p>
+      )}
       <p>
         {record.biography ||
           record.narrative ||
@@ -756,6 +857,23 @@ function StaffRecord({ resource, record, run, busy }) {
       )}
       {decisions.length > 0 && (
         <>
+          {resource === "refunds" && (
+            <label>
+              Refund amount, USD (blank for full remaining)
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                max={
+                  record.remaining_cents
+                    ? record.remaining_cents / 100
+                    : undefined
+                }
+                value={refundAmount}
+                onChange={(event) => setRefundAmount(event.target.value)}
+              />
+            </label>
+          )}
           <label>
             Decision explanation
             <textarea
@@ -807,6 +925,23 @@ function StaffRecord({ resource, record, run, busy }) {
           </button>
         </>
       )}
+      {resource === "refunds" &&
+        record.payment_status === "REFUNDED" &&
+        record.tip_status === "CAPTURED" && (
+          <button
+            className="beta-secondary"
+            disabled={busy}
+            onClick={() =>
+              run(
+                "tip-refund",
+                { bookingId: record.booking_id },
+                "Remaining sandbox tip refund submitted for confirmation.",
+              )
+            }
+          >
+            Refund remaining tip principal ({money(record.tip_remaining_cents)})
+          </button>
+        )}
       {resource === "applications" && (
         <form
           className="beta-certification"
@@ -964,15 +1099,72 @@ function AnalyticsSummary({ data }) {
       )}
       {data.financial && (
         <dl className="beta-metrics">
-          {Object.entries(data.financial).map(([name, value]) => (
+          {Object.entries(data.financial).map(([name, value]) =>
+            typeof value !== "number" ? null : (
+              <div key={name}>
+                <dt>
+                  {human(name.replace(/Cents$/, "").replace(/([A-Z])/g, " $1"))}
+                </dt>
+                <dd>{money(value)}</dd>
+              </div>
+            ),
+          )}
+        </dl>
+      )}
+      {data.financial?.deliveredContribution && (
+        <p>
+          Contribution per delivered session:{" "}
+          {data.financial.deliveredContribution.centsPerSession === null
+            ? "No delivered sessions in this window"
+            : money(data.financial.deliveredContribution.centsPerSession)}{" "}
+          · {data.financial.deliveredContribution.denominator} delivered
+          sessions
+        </p>
+      )}
+      {data.matching && (
+        <p>
+          Accepted-host wait: median{" "}
+          {data.matching.medianMs === null
+            ? "unmeasured"
+            : (data.matching.medianMs / 1000).toFixed(1) + "s"}
+          , p95{" "}
+          {data.matching.p95Ms === null
+            ? "unmeasured"
+            : (data.matching.p95Ms / 1000).toFixed(1) + "s"}{" "}
+          · {data.matching.latencySamples} accepted attempts
+        </p>
+      )}
+      {data.retention && (
+        <dl className="beta-metrics">
+          {Object.entries(data.retention).map(([name, value]) => (
             <div key={name}>
-              <dt>
-                {human(name.replace(/Cents$/, "").replace(/([A-Z])/g, " $1"))}
-              </dt>
-              <dd>{money(value)}</dd>
+              <dt>{value.horizonDays}-day repeat purchase</dt>
+              <dd>
+                {value.numerator} / {value.denominator} mature customers ·{" "}
+                {value.immatureCustomers} awaiting maturity
+              </dd>
             </div>
           ))}
         </dl>
+      )}
+      {data.hostUtilization && (
+        <p>
+          Observed host utilization:{" "}
+          {data.hostUtilization.rate === null
+            ? "unmeasured"
+            : (100 * data.hostUtilization.rate).toFixed(1) + "%"}{" "}
+          · {Math.round(data.hostUtilization.busyMs / 1000)} busy seconds /{" "}
+          {Math.round(data.hostUtilization.availableMs / 1000)} observed
+          available seconds
+        </p>
+      )}
+      {data.visitorCoverage && (
+        <p className="beta-small">
+          Visitor conversion covers consenting visits only.{" "}
+          {data.visitorCoverage.completeWindow
+            ? "The reporting window is within retained coverage."
+            : "This window has incomplete visit coverage."}
+        </p>
       )}
       <p className="beta-small">
         Counts describe recorded staging events. Only answered value questions

@@ -269,7 +269,7 @@ test("late successful payment queues a review while retaining the terminal booki
   );
   db.close();
 });
-test("provider mismatch and unsupported partial refunds make no financial changes", async () => {
+test("provider mismatches and inconsistent cumulative refunds make no financial changes", async () => {
   const { db, service } = fixture();
   await service.checkout({ id: "customer" }, "booking");
   const wrong = success();
@@ -277,7 +277,7 @@ test("provider mismatch and unsupported partial refunds make no financial change
   await assert.rejects(() => service.ingest(wrong), /match/);
   const partial = refund();
   partial.data.object.amount_refunded = 500;
-  await assert.rejects(() => service.ingest(partial), /Partial refunds/);
+  await assert.rejects(() => service.ingest(partial), /cumulative refund/);
   assert.equal(
     db.sqlite.prepare("SELECT count(*) AS n FROM mp_ledger_entries").get().n,
     0,
@@ -648,5 +648,445 @@ test("lost dispute converts the provider-withdrawn principal into a balanced los
       .get().n,
     0,
   );
+  f.db.close();
+});
+
+function cumulativeRefund(cents, id = "evt_partial_" + cents) {
+  const event = refund();
+  event.id = id;
+  event.data.object.amount_refunded = cents;
+  event.data.object.refunded = cents === 1000;
+  return event;
+}
+function allocateDelivered(f) {
+  f.db.sqlite.prepare("UPDATE mp_bookings SET status='COMPLETED'").run();
+  const p = f.db.sqlite.prepare("SELECT * FROM mp_payments").get();
+  for (const [account, debit, credit] of [
+    ["service_liability", 1000, 0],
+    ["host_base_payable", 0, 700],
+    ["platform_revenue", 0, 300],
+  ])
+    f.db.sqlite
+      .prepare("INSERT INTO mp_ledger_entries VALUES(?,?,?,?,?,?,?,?)")
+      .run(
+        crypto.randomUUID(),
+        "booking",
+        p.id,
+        "delivery:" + p.id,
+        account,
+        debit,
+        credit,
+        now,
+      );
+}
+function balance(db, account) {
+  return db.sqlite
+    .prepare(
+      "SELECT COALESCE(sum(credit_cents-debit_cents),0) n FROM mp_ledger_entries WHERE account=?",
+    )
+    .get(account).n;
+}
+test("cumulative partial refunds reverse delivered allocations once and converge under out-of-order callbacks", async () => {
+  const f = fixture();
+  await f.service.checkout({ id: "customer" }, "booking");
+  await f.service.ingest(success());
+  allocateDelivered(f);
+  await f.service.ingest(cumulativeRefund(333));
+  assert.equal(balance(f.db, "host_base_payable"), 467);
+  assert.equal(balance(f.db, "platform_revenue"), 200);
+  assert.equal(
+    f.db.sqlite.prepare("SELECT status FROM mp_payments").get().status,
+    "CAPTURED",
+  );
+  await f.service.ingest(cumulativeRefund(200, "evt_older"));
+  await f.service.ingest(cumulativeRefund(333, "evt_duplicate_state"));
+  await f.service.ingest(cumulativeRefund(333));
+  assert.equal(balance(f.db, "host_base_payable"), 467);
+  assert.equal(
+    f.db.sqlite.prepare("SELECT count(*) n FROM mp_refund_steps").get().n,
+    1,
+  );
+  await Promise.all([
+    f.service.ingest(cumulativeRefund(700)),
+    f.service.ingest(refund()),
+    f.service.ingest(cumulativeRefund(500)),
+  ]);
+  assert.equal(balance(f.db, "host_base_payable"), 0);
+  assert.equal(balance(f.db, "platform_revenue"), 0);
+  assert.equal(
+    f.db.sqlite
+      .prepare("SELECT refunded_cents FROM mp_payment_refund_totals")
+      .get().refunded_cents,
+    1000,
+  );
+  assert.equal(
+    f.db.sqlite.prepare("SELECT status FROM mp_payments").get().status,
+    "REFUNDED",
+  );
+  assert.equal(
+    f.db.sqlite
+      .prepare("SELECT sum(debit_cents-credit_cents) n FROM mp_ledger_entries")
+      .get().n,
+    0,
+  );
+  assert.throws(
+    () =>
+      f.db.sqlite
+        .prepare("UPDATE mp_refund_steps SET cumulative_cents=1")
+        .run(),
+    /append-only/,
+  );
+  f.db.close();
+});
+test("partial refund before capture preserves remaining liability and prevents later session readiness", async () => {
+  const f = fixture();
+  await f.service.checkout({ id: "customer" }, "booking");
+  await f.service.ingest(cumulativeRefund(400));
+  await f.service.ingest(success());
+  assert.equal(
+    f.db.sqlite.prepare("SELECT status FROM mp_bookings").get().status,
+    "CANCELLED",
+  );
+  assert.equal(
+    f.db.sqlite.prepare("SELECT count(*) n FROM mp_host_claims").get().n,
+    0,
+  );
+  assert.equal(balance(f.db, "service_liability"), 600);
+  assert.equal(balance(f.db, "processor_clearing"), -600);
+  f.db.close();
+});
+test("reviewed partial awards freeze the approved amount, survive retries and permit a later remaining-principal review", async () => {
+  const f = fixture();
+  await f.service.checkout({ id: "customer" }, "booking");
+  await f.service.ingest(success());
+  allocateDelivered(f);
+  f.db.sqlite
+    .prepare("INSERT INTO mp_user_roles VALUES('outsider','finance')")
+    .run();
+  f.db.sqlite
+    .prepare(
+      "INSERT INTO mp_refunds(id,booking_id,payment_id,reason,status,created_at,updated_at) SELECT 'review',booking_id,id,'Fixture','OPEN',?,? FROM mp_payments",
+    )
+    .run(now, now);
+  const actor = { id: "outsider", stepUp: true },
+    payload = {
+      refundId: "review",
+      status: "APPROVED",
+      reason: "Proportional service adjustment",
+      amountCents: 300,
+    };
+  await assert.rejects(
+    () =>
+      f.service.reviewRefund(
+        { id: "customer", stepUp: true },
+        payload,
+        "decision",
+      ),
+    /finance/,
+  );
+  await assert.rejects(
+    () =>
+      f.service.reviewRefund(
+        actor,
+        { ...payload, amountCents: 1001 },
+        "excess",
+      ),
+    /remaining/,
+  );
+  const award = await f.service.reviewRefund(actor, payload, "decision");
+  assert.equal(award.amountCents, 300);
+  assert.equal(
+    (await f.service.reviewRefund(actor, payload, "decision")).awardId,
+    award.awardId,
+  );
+  await assert.rejects(
+    () =>
+      f.service.reviewRefund(
+        actor,
+        { ...payload, amountCents: 301 },
+        "decision",
+      ),
+    /another decision/,
+  );
+  const calls = [];
+  const provider = {
+    mode: "sandbox",
+    async refund(input, key) {
+      calls.push({ input, key });
+      return {
+        id: "re_partial",
+        livemode: false,
+        amount: input.amountCents,
+        payment_intent: input.paymentIntentId,
+      };
+    },
+  };
+  const service = createPaymentService(f.db, { provider, clock: () => now });
+  await service.dispatchRefund(actor, "review");
+  await service.dispatchRefund(actor, "review");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].input.amountCents, 300);
+  assert.equal(calls[0].key, "hc-refund-" + award.awardId);
+  await service.ingest(cumulativeRefund(300));
+  assert.equal(
+    f.db.sqlite.prepare("SELECT status FROM mp_refund_awards").get().status,
+    "CONFIRMED",
+  );
+  f.db.sqlite.prepare("UPDATE mp_refunds SET status='OPEN'").run();
+  const second = await service.reviewRefund(
+    actor,
+    {
+      refundId: "review",
+      status: "APPROVED",
+      reason: "Refund remaining principal",
+    },
+    "decision2",
+  );
+  assert.equal(second.amountCents, 700);
+  assert.throws(
+    () =>
+      f.db.sqlite.prepare("UPDATE mp_refund_awards SET amount_cents=1").run(),
+    /immutable/,
+  );
+  f.db.close();
+});
+test("rejected financial review retries return the original result after the case closes", async () => {
+  const f = fixture();
+  await f.service.checkout({ id: "customer" }, "booking");
+  await f.service.ingest(success());
+  f.db.sqlite
+    .prepare("INSERT INTO mp_user_roles VALUES('outsider','finance')")
+    .run();
+  f.db.sqlite
+    .prepare(
+      "INSERT INTO mp_refunds(id,booking_id,payment_id,reason,status,created_at,updated_at) SELECT 'review',booking_id,id,'Fixture','OPEN',?,? FROM mp_payments",
+    )
+    .run(now, now);
+  const actor = { id: "outsider", stepUp: true },
+    payload = {
+      refundId: "review",
+      status: "REJECTED",
+      reason: "Reviewed service was delivered",
+    };
+  await f.service.reviewRefund(actor, payload, "reject");
+  assert.equal(
+    (await f.service.reviewRefund(actor, payload, "reject")).replayed,
+    true,
+  );
+  assert.equal(
+    f.db.sqlite.prepare("SELECT count(*) n FROM mp_refund_decisions").get().n,
+    1,
+  );
+  f.db.close();
+});
+test("provider reconciliation applies missing cumulative refund evidence from the expanded charge", async () => {
+  const f = fixture();
+  await f.service.checkout({ id: "customer" }, "booking");
+  await f.service.ingest(success());
+  f.db.sqlite
+    .prepare("INSERT INTO mp_user_roles VALUES('outsider','finance')")
+    .run();
+  const provider = {
+    mode: "sandbox",
+    async retrieveIntent() {
+      return {
+        ...success().data.object,
+        status: "succeeded",
+        latest_charge: cumulativeRefund(250).data.object,
+      };
+    },
+  };
+  const service = createPaymentService(f.db, { provider, clock: () => now });
+  const id = f.db.sqlite.prepare("SELECT id FROM mp_payments").get().id;
+  await service.reconcile({ id: "outsider", stepUp: true }, id);
+  await service.reconcile({ id: "outsider", stepUp: true }, id);
+  assert.equal(
+    f.db.sqlite
+      .prepare("SELECT refunded_cents FROM mp_payment_refund_totals")
+      .get().refunded_cents,
+    250,
+  );
+  assert.equal(
+    f.db.sqlite.prepare("SELECT count(*) n FROM mp_refund_steps").get().n,
+    1,
+  );
+  f.db.close();
+});
+
+test("large supported charge allocations use integer arithmetic at proportional refund boundaries", async () => {
+  const f = fixture(),
+    amount = 99999989,
+    refunded = 49999997;
+  const host = Number((BigInt(amount) * 7000n + 5000n) / 10000n);
+  const hostReversal = Number(
+    (BigInt(refunded) * BigInt(host) + BigInt(amount) / 2n) / BigInt(amount),
+  );
+  f.db.sqlite
+    .prepare("UPDATE mp_bookings SET status='COMPLETED',amount_cents=?")
+    .run(amount);
+  f.db.sqlite
+    .prepare(
+      "INSERT INTO mp_payments VALUES('large','booking','pi_fixture','CAPTURED',?,'USD',?,?)",
+    )
+    .run(amount, now, now);
+  for (const [account, debit, credit] of [
+    ["service_liability", amount, 0],
+    ["host_base_payable", 0, host],
+    ["platform_revenue", 0, amount - host],
+  ])
+    f.db.sqlite
+      .prepare("INSERT INTO mp_ledger_entries VALUES(?,?,?,?,?,?,?,?)")
+      .run(
+        crypto.randomUUID(),
+        "booking",
+        "large",
+        "delivery:large",
+        account,
+        debit,
+        credit,
+        now,
+      );
+  const event = cumulativeRefund(refunded, "large-refund");
+  event.data.object.amount = amount;
+  await f.service.ingest(event);
+  assert.equal(balance(f.db, "host_base_payable"), host - hostReversal);
+  assert.equal(
+    balance(f.db, "platform_revenue"),
+    amount - host - (refunded - hostReversal),
+  );
+  assert.equal(
+    f.db.sqlite
+      .prepare(
+        "SELECT count(*) n FROM mp_ledger_entries WHERE typeof(debit_cents)<>'integer' OR typeof(credit_cents)<>'integer'",
+      )
+      .get().n,
+    0,
+  );
+  assert.equal(
+    f.db.sqlite
+      .prepare("SELECT sum(debit_cents-credit_cents) n FROM mp_ledger_entries")
+      .get().n,
+    0,
+  );
+  f.db.close();
+});
+
+test("tip cumulative partial refunds converge before capture and preserve only remaining host principal", async () => {
+  const f = fixture();
+  await f.service.checkout({ id: "customer" }, "booking");
+  await f.service.ingest(success());
+  f.db.sqlite
+    .prepare(
+      "INSERT INTO mp_tips VALUES('tip','booking','customer','pi_tip',500,'tip-key','digest','PENDING',?,?)",
+    )
+    .run(now, now);
+  const event = (amount, id = "evt_tip_refund_" + amount) => ({
+    id,
+    type: "charge.refunded",
+    livemode: false,
+    data: {
+      object: {
+        id: "ch_tip",
+        payment_intent: "pi_tip",
+        amount: 500,
+        amount_refunded: amount,
+        refunded: amount === 500,
+        currency: "usd",
+      },
+    },
+  });
+  await f.service.ingest(event(150));
+  await f.service.ingest(event(400));
+  await f.service.ingest(event(200));
+  await f.service.ingest(event(400, "evt_duplicate_tip_refund"));
+  assert.equal(
+    f.db.sqlite
+      .prepare(
+        "SELECT sum(credit_cents-debit_cents) n FROM mp_ledger_entries WHERE account='host_tip_payable'",
+      )
+      .get().n,
+    100,
+  );
+  await f.service.ingest(event(500));
+  await f.service.ingest({
+    id: "evt_tip_late_capture",
+    type: "payment_intent.succeeded",
+    livemode: false,
+    data: {
+      object: {
+        id: "pi_tip",
+        amount: 500,
+        amount_received: 500,
+        currency: "usd",
+      },
+    },
+  });
+  assert.equal(
+    f.db.sqlite.prepare("SELECT status FROM mp_tips").get().status,
+    "REFUNDED",
+  );
+  assert.equal(
+    f.db.sqlite.prepare("SELECT refunded_cents FROM mp_tip_refund_totals").get()
+      .refunded_cents,
+    500,
+  );
+  assert.equal(
+    f.db.sqlite
+      .prepare(
+        "SELECT sum(credit_cents-debit_cents) n FROM mp_ledger_entries WHERE account='host_tip_payable'",
+      )
+      .get().n,
+    0,
+  );
+  assert.equal(
+    f.db.sqlite
+      .prepare("SELECT sum(credit_cents-debit_cents) n FROM mp_ledger_entries")
+      .get().n,
+    0,
+  );
+  f.db.close();
+});
+test("tip refund submissions retain a stable remaining-principal snapshot through ambiguous provider retries", async () => {
+  const f = fixture();
+  await f.service.checkout({ id: "customer" }, "booking");
+  await f.service.ingest(success());
+  await f.service.ingest(refund());
+  f.db.sqlite
+    .prepare("INSERT INTO mp_user_roles VALUES('outsider','finance')")
+    .run();
+  f.db.sqlite
+    .prepare(
+      "INSERT INTO mp_tips VALUES('tip','booking','customer','pi_tip',500,'tip-key','digest','CAPTURED',?,?)",
+    )
+    .run(now, now);
+  let current = now,
+    attempt = 0;
+  const calls = [];
+  const service = createPaymentService(f.db, {
+    clock: () => current,
+    provider: {
+      mode: "sandbox",
+      async refund(input, key) {
+        calls.push({ input, key });
+        if (attempt++ === 0) throw Error("Fixture network interruption");
+        return {
+          id: "re_tip_fixture",
+          livemode: false,
+          amount: input.amountCents,
+          payment_intent: input.paymentIntentId,
+        };
+      },
+    },
+  });
+  await assert.rejects(() =>
+    service.refundTip({ id: "outsider", stepUp: true }, "booking"),
+  );
+  current += 5000;
+  assert.equal((await service.retryPending()).processed, 1);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], calls[1]);
+  assert.equal(calls[1].input.amountCents, 500);
+  await service.refundTip({ id: "outsider", stepUp: true }, "booking");
+  assert.equal(calls.length, 2);
   f.db.close();
 });

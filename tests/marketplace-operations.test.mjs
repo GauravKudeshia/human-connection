@@ -13,6 +13,12 @@ async function fixture() {
       "utf8",
     ),
   );
+  db.sqlite.exec(
+    readFileSync(
+      new URL("../db/marketplace-analytics.sql", import.meta.url),
+      "utf8",
+    ),
+  );
   let now = start;
   const market = createMarketplace(db, { clock: () => now });
   const customer = await market.provisionIdentity({
@@ -185,12 +191,13 @@ test("failed notifications use bounded backoff, stop after five tries, and creat
     f.setNow(row.available_at);
   }
   assert.equal(sends, 5);
-  assert.equal((await ops.dispatch()).processed, 0);
+  assert.equal((await ops.dispatch()).processed, 1); // The new staff alert is a separate bounded outbox delivery.
   assert.equal(
     f.db.sqlite.prepare("SELECT status FROM mp_notifications").get().status,
     "FAILED",
   );
-  assert.equal((await ops.alerts(f.safety)).length, 1);
+  assert.equal((await ops.alerts(f.safety)).length, 0);
+  assert.equal((await ops.alerts(f.admin)).length, 1);
   assert.equal(
     JSON.stringify(await ops.alerts(f.safety)).includes(
       "Private provider text",
@@ -242,12 +249,47 @@ test("financial metrics separate host principal, platform revenue and actual pro
     .create()
     .analytics(f.admin, { from: start - 1, to: start + 1 });
   assert.equal(result.counts.completed, 1);
-  assert.deepEqual(result.financial, {
-    customerNetCents: 1000,
-    platformRevenueCents: 300,
-    processingFeesCents: 30,
-    videoCostsCents: 0,
-    disputeLossCents: 0,
-    contributionCents: 270,
+  assert.equal(result.financial.customerNetCents, 1000);
+  assert.equal(result.financial.platformRevenueCents, 300);
+  assert.equal(result.financial.processingFeesCents, 30);
+  assert.equal(result.financial.contributionCents, 270);
+  assert.equal(result.financial.grossMerchandiseValueCents, 1000);
+  assert.deepEqual(result.financial.deliveredContribution, {
+    totalCents: 270,
+    denominator: 1,
+    centsPerSession: 270,
   });
+});
+
+test("operational alerts remain least-privileged and failed staff delivery cannot create an alert loop", async (t) => {
+  const f = await fixture();
+  t.after(() => f.db.close());
+  const ops = f.create({
+    async send() {
+      throw Error("Private failure");
+    },
+  });
+  await ops.noteFailure("payment_mismatch", "server-only-reference");
+  assert.equal((await ops.alerts(f.safety)).length, 0);
+  assert.equal((await ops.alerts(f.admin)).length, 1);
+  for (let i = 0; i < 7; i++) {
+    await ops.dispatch();
+    f.setNow(start + (i + 1) * 3600000);
+  }
+  assert.equal(
+    f.db.sqlite.prepare("SELECT COUNT(*) n FROM mp_operator_alerts").get().n,
+    1,
+  );
+  assert.equal(
+    f.db.sqlite
+      .prepare(
+        "SELECT COUNT(*) n FROM mp_notifications WHERE kind='operations_alert'",
+      )
+      .get().n,
+    1,
+  );
+  await assert.rejects(
+    () => ops.noteFailure("private_report_body", "not-stored"),
+    (e) => e.code === "VALIDATION",
+  );
 });

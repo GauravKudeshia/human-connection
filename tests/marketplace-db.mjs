@@ -1,16 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
+import { marketplaceMigrations } from "../db/marketplace-migrations.mjs";
 
 export function sqliteD1(filename = ":memory:") {
   const sqlite = new DatabaseSync(filename);
-  sqlite.exec(
-    readFileSync(new URL("../db/marketplace.sql", import.meta.url), "utf8"),
-  );
-  for (const migration of [
-    "marketplace-auth.sql",
-    "marketplace-session-finance.sql",
-    "marketplace-operations.sql",
-  ])
+  for (const migration of marketplaceMigrations)
     sqlite.exec(
       readFileSync(new URL("../db/" + migration, import.meta.url), "utf8"),
     );
