@@ -1,5 +1,7 @@
 # Implementation roadmap
 
+The [continued implementation record](CONTINUED-IMPLEMENTATION-2026-11-14.md) supersedes the foundation status descriptions below for browser authentication, connected beta screens, host media, attendance, financial operations and notifications. Its evidence distinguishes local implementation from unexecuted provider-account verification.
+
 November 14, 2026. Work follows the existing repository and its three experience model. Development stays on `feature/research-driven-beta-foundation`.
 
 ## Branch scope
@@ -18,13 +20,14 @@ November 14, 2026. Work follows the existing repository and its three experience
 | Shared activity revisions | Isolated staging foundation | Participant-authorized activity state and revision checks |
 | Stripe sandbox adapter and signed callback handling | IMPLEMENTED BUT NOT CONFIGURED | Provider and finance modules, injected-response tests |
 | Daily private-room/token adapter | IMPLEMENTED BUT NOT CONFIGURED | Provider module and request-contract tests |
-| Real identity-verification provider | NOT STARTED | Provider selection and deployment work required |
-| Host intro upload, consent and moderation | NOT STARTED | No upload endpoint or approved media supply |
-| Customer adult/U.S. eligibility and policy-acceptance history | NOT STARTED for marketplace actors | Existing acknowledgements belong to the demo |
-| Full live session delivery and overlap evidence | NOT STARTED | Needs media client, provider events and two-browser verification |
-| Provider fees, disputes, transfers and payouts | NOT STARTED / REQUIRES APPROVAL | Merchant model, policies and provider integrations required |
-| Managed sign-up, recovery, logout and MFA enrollment | IMPLEMENTED BUT NOT CONFIGURED at the verifier boundary | Real identity tenant and client flow remain required |
-| Background scheduling and notification delivery | Partial persistent records | No configured delivery provider or continuously running reconciliation worker |
+| Identity-verification provider adapter | IMPLEMENTED BUT NOT CONFIGURED | Sandbox Identity and account lookup with host ownership references, verified by injected provider evidence |
+| Host intro upload, consent and moderation | IMPLEMENTED AND TESTED locally | Bounded private R2 upload, transcripts, consent, review, approved playback and appeals |
+| Customer adult/U.S. eligibility and policy-acceptance history | IMPLEMENTED AND TESTED locally | Reservation eligibility gate and append-only acceptance records |
+| Media client, attendance and overlap | IMPLEMENTED BUT NOT CONFIGURED | Daily client, participant grants, signed attendance, reconnection and delivery tests. Actual two-browser provider verification remains |
+| Provider fees and disputes | IMPLEMENTED AND TESTED locally | Immutable principal, fee and dispute movements with sandbox reconciliation fixtures |
+| Transfers and payouts | REQUIRES APPROVAL and further implementation | Merchant structure, payout authorization and operating policy remain prerequisites |
+| Managed sign-up, recovery, logout and MFA | IMPLEMENTED BUT NOT CONFIGURED | Hosted OIDC/PKCE flow, encrypted revocable browser session and provider-managed recovery |
+| Background scheduling and notification delivery | IMPLEMENTED BUT NOT CONFIGURED | Leased retries, bounded backoff, alerts and scheduled processing. Actual test delivery and staging scheduling remain |
 | Live operation | REQUIRES APPROVAL | See readiness checklist |
 
 “Foundation” identifies code that can be exercised locally. The [QA record](QA-AND-TEST-EVIDENCE.md) specifies which boundaries were actually tested.

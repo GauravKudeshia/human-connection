@@ -15,8 +15,20 @@ async function fixture() {
   const db = sqliteD1();
   let now = start;
   const service = createMarketplace(db, { clock: () => now });
-  const user = (subject, stepUp = false) =>
-    service.provisionIdentity({ subject, displayName: subject, stepUp });
+  const user = async (subject, stepUp = false) => {
+    const actor = await service.provisionIdentity({
+      subject,
+      displayName: subject,
+      stepUp,
+    });
+    await db
+      .prepare(
+        "INSERT OR IGNORE INTO mp_customer_eligibility VALUES(?,1,1,'beta-2026-11',?)",
+      )
+      .bind(actor.id, now)
+      .run();
+    return actor;
+  };
   const customer = await user("customer");
   const stranger = await user("stranger");
   const host = await user("host");

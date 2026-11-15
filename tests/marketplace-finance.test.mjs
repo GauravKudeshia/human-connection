@@ -394,3 +394,259 @@ test("private room adapter binds tokens to a room, limits lifetime and disables 
     ),
   );
 });
+
+test("optional tips preserve all principal for the host and cannot duplicate or change after creation", async () => {
+  const f = fixture();
+  await f.service.checkout({ id: "customer" }, "booking");
+  await f.service.ingest(success());
+  f.db.sqlite.prepare("UPDATE mp_bookings SET status='COMPLETED'").run();
+  const provider = {
+    mode: "sandbox",
+    async createTipIntent({ amountCents }) {
+      return {
+        id: "pi_tipfixture",
+        livemode: false,
+        amount: amountCents,
+        currency: "usd",
+        client_secret: "tip-secret",
+      };
+    },
+  };
+  const service = createPaymentService(f.db, { provider, clock: () => now });
+  const result = await service.tip(
+    { id: "customer" },
+    "booking",
+    500,
+    "tip-key",
+  );
+  assert.equal(result.clientSecret, "tip-secret");
+  await service.tip({ id: "customer" }, "booking", 500, "tip-key");
+  await assert.rejects(
+    () => service.tip({ id: "customer" }, "booking", 200, "other-key"),
+    /different tip/,
+  );
+  const event = {
+    id: "evt_tip",
+    type: "payment_intent.succeeded",
+    livemode: false,
+    data: {
+      object: {
+        id: "pi_tipfixture",
+        amount: 500,
+        amount_received: 500,
+        currency: "usd",
+      },
+    },
+  };
+  await service.ingest(event);
+  await service.ingest(event);
+  assert.equal(
+    f.db.sqlite
+      .prepare(
+        "SELECT sum(credit_cents) n FROM mp_ledger_entries WHERE account='host_tip_payable'",
+      )
+      .get().n,
+    500,
+  );
+  assert.equal(
+    f.db.sqlite.prepare("SELECT count(*) n FROM mp_tips").get().n,
+    1,
+  );
+  f.db.close();
+});
+test("approved sandbox refund submission retries with a stable provider key and waits for signed confirmation", async () => {
+  const f = fixture();
+  await f.service.checkout({ id: "customer" }, "booking");
+  await f.service.ingest(success());
+  f.db.sqlite
+    .prepare("INSERT INTO mp_user_roles VALUES('outsider','finance')")
+    .run();
+  f.db.sqlite
+    .prepare(
+      "INSERT INTO mp_refunds(id,booking_id,payment_id,reason,status,created_at,updated_at) SELECT 'refund',booking_id,id,'Fixture','APPROVED',?,? FROM mp_payments",
+    )
+    .run(now, now);
+  const calls = [];
+  const provider = {
+    mode: "sandbox",
+    async refund(input, key) {
+      calls.push(key);
+      return {
+        id: "re_fixture",
+        livemode: false,
+        amount: 1000,
+        payment_intent: "pi_fixture",
+      };
+    },
+  };
+  const service = createPaymentService(f.db, { provider, clock: () => now });
+  await assert.rejects(
+    () => service.dispatchRefund({ id: "customer", stepUp: true }, "refund"),
+    (e) => e.status === 403,
+  );
+  await assert.rejects(
+    () => service.dispatchRefund({ id: "outsider", stepUp: false }, "refund"),
+    (e) => e.status === 403,
+  );
+  assert.equal(
+    (await service.dispatchRefund({ id: "outsider", stepUp: true }, "refund"))
+      .awaitingProvider,
+    true,
+  );
+  await service.dispatchRefund({ id: "outsider", stepUp: true }, "refund");
+  assert.equal(calls.length, 1);
+  assert.equal(
+    f.db.sqlite.prepare("SELECT status FROM mp_refunds").get().status,
+    "APPROVED",
+  );
+  await service.ingest(refund());
+  assert.equal(
+    f.db.sqlite.prepare("SELECT status FROM mp_refunds").get().status,
+    "REFUNDED",
+  );
+  f.db.close();
+});
+test("reconciliation records provider fees independently from host principal", async () => {
+  const f = fixture();
+  await f.service.checkout({ id: "customer" }, "booking");
+  await f.service.ingest(success());
+  f.db.sqlite
+    .prepare("INSERT INTO mp_user_roles VALUES('outsider','finance')")
+    .run();
+  const intent = {
+    ...success().data.object,
+    status: "succeeded",
+    latest_charge: {
+      balance_transaction: {
+        id: "txn_fee",
+        currency: "usd",
+        amount: 1000,
+        fee: 59,
+      },
+    },
+  };
+  const service = createPaymentService(f.db, {
+    provider: {
+      mode: "sandbox",
+      async retrieveIntent() {
+        return intent;
+      },
+    },
+    clock: () => now,
+  });
+  await service.reconcile(
+    { id: "outsider", stepUp: true },
+    f.db.sqlite.prepare("SELECT id FROM mp_payments").get().id,
+  );
+  await service.reconcile(
+    { id: "outsider", stepUp: true },
+    f.db.sqlite.prepare("SELECT id FROM mp_payments").get().id,
+  );
+  assert.equal(
+    f.db.sqlite
+      .prepare(
+        "SELECT sum(debit_cents) n FROM mp_ledger_entries WHERE account='processing_fee_expense'",
+      )
+      .get().n,
+    59,
+  );
+  assert.equal(
+    f.db.sqlite
+      .prepare("SELECT sum(debit_cents-credit_cents) n FROM mp_ledger_entries")
+      .get().n,
+    0,
+  );
+  f.db.close();
+});
+test("out-of-order dispute closure keeps its final disposition and reconciles actual provider balance movements once", async () => {
+  const f = fixture();
+  await f.service.checkout({ id: "customer" }, "booking");
+  await f.service.ingest(success());
+  const payload = {
+    id: "dp_fixture",
+    payment_intent: "pi_fixture",
+    currency: "usd",
+    amount: 1000,
+    status: "won",
+    balance_transactions: [
+      { id: "txn_withdrawn", currency: "usd", amount: -1000, fee: 150 },
+      { id: "txn_reinstated", currency: "usd", amount: 1000, fee: 0 },
+    ],
+  };
+  await f.service.ingest({
+    id: "evt_dp_close",
+    type: "charge.dispute.closed",
+    livemode: false,
+    data: { object: payload },
+  });
+  await f.service.ingest({
+    id: "evt_dp_old",
+    type: "charge.dispute.created",
+    livemode: false,
+    data: { object: { ...payload, status: "needs_response" } },
+  });
+  assert.equal(
+    f.db.sqlite.prepare("SELECT status FROM mp_disputes").get().status,
+    "won",
+  );
+  assert.equal(
+    f.db.sqlite.prepare("SELECT status FROM mp_payments").get().status,
+    "CAPTURED",
+  );
+  assert.equal(
+    f.db.sqlite
+      .prepare(
+        "SELECT sum(debit_cents-credit_cents) n FROM mp_ledger_entries WHERE account='dispute_receivable'",
+      )
+      .get().n,
+    0,
+  );
+  assert.equal(
+    f.db.sqlite
+      .prepare("SELECT sum(debit_cents-credit_cents) n FROM mp_ledger_entries")
+      .get().n,
+    0,
+  );
+  f.db.close();
+});
+test("lost dispute converts the provider-withdrawn principal into a balanced loss once", async () => {
+  const f = fixture();
+  await f.service.checkout({ id: "customer" }, "booking");
+  await f.service.ingest(success());
+  const event = {
+    id: "evt_dp_lost",
+    type: "charge.dispute.closed",
+    livemode: false,
+    data: {
+      object: {
+        id: "dp_lost",
+        payment_intent: "pi_fixture",
+        amount: 1000,
+        currency: "usd",
+        status: "lost",
+        balance_transactions: [
+          { id: "txn_lost", currency: "usd", amount: -1000, fee: 0 },
+        ],
+      },
+    },
+  };
+  await f.service.ingest(event);
+  await f.service.ingest(event);
+  assert.equal(
+    f.db.sqlite
+      .prepare(
+        "SELECT sum(debit_cents) n FROM mp_ledger_entries WHERE account='dispute_loss_expense'",
+      )
+      .get().n,
+    1000,
+  );
+  assert.equal(
+    f.db.sqlite
+      .prepare(
+        "SELECT sum(debit_cents-credit_cents) n FROM mp_ledger_entries WHERE account='dispute_receivable'",
+      )
+      .get().n,
+    0,
+  );
+  f.db.close();
+});

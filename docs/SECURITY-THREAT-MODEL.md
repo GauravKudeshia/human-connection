@@ -1,5 +1,7 @@
 # Security threat model
 
+The [continued implementation record](CONTINUED-IMPLEMENTATION-2026-11-14.md) supersedes the foundation status descriptions below for browser authentication, connected beta screens, host media, attendance, financial operations and notifications. Its evidence distinguishes local implementation from unexecuted provider-account verification.
+
 November 14, 2026. Scope includes the existing browser demo, owner-workspace prototype and the branch's isolated staging marketplace boundary.
 
 ## Assets and trust boundaries

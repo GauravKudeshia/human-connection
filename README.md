@@ -1,5 +1,9 @@
 # Human Connection
 
+The [continued implementation record](docs/CONTINUED-IMPLEMENTATION-2026-11-14.md) describes the connected beta interface, hosted sign-in flow, media attendance, host introductions, appeals, notifications and sandbox reconciliation added after the foundation review. Open `/beta` on the local Worker to use that interface. Node 22.14 or newer is required by the media SDK.
+
+Apply `db/marketplace.sql`, then `db/marketplace-auth.sql`, `db/marketplace-session-finance.sql` and `db/marketplace-operations.sql` to an isolated staging database. The [staging configuration example](wrangler.staging.example.jsonc) supplies the binding names. Copy and fill it for local testing, run `npx wrangler dev --local --port 4212 --config wrangler.staging.example.jsonc` after building, and register `/api/marketplace/auth/callback` as the managed provider's callback. Server-only credentials belong in ignored `.dev.vars` or the staging secret store. Keep the application origin aligned with the local port.
+
 ## Research-driven development branch
 
 The work on `feature/research-driven-beta-foundation` adds a separate staging API, normalized database schema, role and ownership checks, shared host reservations and activities, sandbox payment boundaries and private value feedback. The public Pages entry continues to use the browser simulator.
@@ -8,7 +12,7 @@ Read the [implementation gap audit](docs/RESEARCH-IMPLEMENTATION-GAP-AUDIT.md), 
 
 ### Local development and tests
 
-Use Node 22.13 or newer. Run `npm ci`, `npm test`, `npm run lint` and `node node_modules/typescript/bin/tsc --noEmit`. The new integration tests use Node's SQLite module with a D1-compatible transactional adapter. `npm run build:pages` builds the standalone demo and `npm run preview:pages` serves it locally.
+Use Node 22.14 or newer. Run `npm ci`, `npm test`, `npm run lint` and `node node_modules/typescript/bin/tsc --noEmit`. The new integration tests use Node's SQLite module with a D1-compatible transactional adapter. `npm run build:pages` builds the standalone demo and `npm run preview:pages` serves it locally.
 
 The existing `npm run build` and `npm run dev -- --port 4193 --hostname 127.0.0.1` commands build and serve the Worker prototype. Run `TEST_BASE_URL=http://127.0.0.1:4193 npm run test:http` only against a disposable prototype workspace.
 
@@ -58,7 +62,7 @@ You can also download `docs/index.html` and open it directly in a current browse
 
 ### Rebuild the public preview
 
-With Node 22.13+ and npm, run `npm ci`, `npm test`, then `npm run build:pages`. Commit the generated `docs/index.html`. In GitHub **Settings → Pages**, publish **main /docs**. The `docs` folder contains the public demo, `.nojekyll`, and the public V1.3 handoff documents. No runtime data or secrets are published.
+With Node 22.14+ and npm, run `npm ci`, `npm test`, then `npm run build:pages`. Commit the generated `docs/index.html`. In GitHub **Settings → Pages**, publish **main /docs**. The `docs` folder contains the public demo, `.nojekyll`, and the public V1.3 handoff documents. No runtime data or secrets are published.
 
 For a local preview, run `npm run preview:pages` after building and open `http://127.0.0.1:4195/`. Stop it with Ctrl+C. Useful checks are `npm run lint`, `npm test`, and `node node_modules/typescript/bin/tsc --noEmit`.
 

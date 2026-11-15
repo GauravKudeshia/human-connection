@@ -1,5 +1,7 @@
 # Research implementation gap audit
 
+The [continued implementation record](CONTINUED-IMPLEMENTATION-2026-11-14.md) supersedes the foundation status descriptions below for browser authentication, connected beta screens, host media, attendance, financial operations and notifications. Its evidence distinguishes local implementation from unexecuted provider-account verification.
+
 November 14, 2026. Baseline source matches the published audit-fix tree at `7826ebf7fd5f84480d2d1951674848389d955b42`. Development continues on `feature/research-driven-beta-foundation`.
 
 ## Baseline evidence

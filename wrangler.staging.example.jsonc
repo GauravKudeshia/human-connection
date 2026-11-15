@@ -1,0 +1,12 @@
+{
+  // Replace the example IDs with isolated staging resources before an authorized deployment.
+  "name": "human-connection-staging",
+  "main": "dist/server/index.js",
+  "compatibility_date": "2026-11-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "directory": "dist/client" },
+  "d1_databases": [{ "binding": "MARKETPLACE_DB", "database_name": "hc-staging", "database_id": "11111111-1111-4111-8111-111111111111" }],
+  "r2_buckets": [{ "binding": "MARKETPLACE_MEDIA", "bucket_name": "hc-staging-introductions" }],
+  "vars": { "HC_MARKETPLACE_ENABLED": "false", "MARKETPLACE_MODE": "staging" },
+  "triggers": { "crons": ["* * * * *"] }
+}

@@ -6,6 +6,14 @@ export function sqliteD1(filename = ":memory:") {
   sqlite.exec(
     readFileSync(new URL("../db/marketplace.sql", import.meta.url), "utf8"),
   );
+  for (const migration of [
+    "marketplace-auth.sql",
+    "marketplace-session-finance.sql",
+    "marketplace-operations.sql",
+  ])
+    sqlite.exec(
+      readFileSync(new URL("../db/" + migration, import.meta.url), "utf8"),
+    );
   function statement(sql, values = []) {
     return {
       bind: (...next) => statement(sql, next),

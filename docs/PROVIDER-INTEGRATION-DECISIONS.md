@@ -1,5 +1,7 @@
 # Provider integration decisions
 
+The [continued implementation record](CONTINUED-IMPLEMENTATION-2026-11-14.md) supersedes the foundation status descriptions below for browser authentication, connected beta screens, host media, attendance, financial operations and notifications. Its evidence distinguishes local implementation from unexecuted provider-account verification.
+
 November 14, 2026. Decisions apply to the development branch. External service approval and live activation remain separate operator actions.
 
 ## Database
