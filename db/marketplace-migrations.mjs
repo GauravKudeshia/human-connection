@@ -8,4 +8,5 @@ export const marketplaceMigrations = Object.freeze([
   "marketplace-analytics.sql",
   "marketplace-privacy.sql",
   "marketplace-reviews.sql",
+  "marketplace-guest-invitations.sql",
 ]);

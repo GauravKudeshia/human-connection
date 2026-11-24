@@ -8,6 +8,7 @@ import {
 } from "../../lib/catalog.mjs";
 import { human, money } from "./beta-api.mjs";
 import { useResource } from "./beta-panels";
+import BetaInvite from "./beta-invite";
 import { languageName } from "../../lib/conversation-languages.mjs";
 
 export default function BetaSession({
@@ -337,6 +338,16 @@ export default function BetaSession({
                 if (reporting) reportInput.current?.focus();
                 else setReporting(true);
               }}
+            />
+          )}
+          {booking.status === "LIVE" && (
+            <BetaInvite
+              api={api}
+              run={run}
+              busy={busy}
+              booking={booking}
+              customer={customer}
+              revision={revision}
             />
           )}
           {terminal && (

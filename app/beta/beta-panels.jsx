@@ -870,6 +870,7 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
   if (roles.some((role) => ["safety", "admin"].includes(role)))
     tabs.push(
       ["safety", "Safety"],
+      ["demo-guest-reports", "Guest test reports"],
       ["safety-history", "Closed cases"],
       ["accounts", "Account status"],
       ["alerts", "Operational alerts"],
@@ -1028,6 +1029,12 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
               run={run}
               busy={busy}
             />
+          ) : resource === "demo-guest-reports" ? (
+            <article className="beta-card" key={record.booking_id}>
+              <h2>{human(record.category)}</h2>
+              <p>Sandbox guest report · {new Date(record.createdAt).toLocaleString()}</p>
+              <p className="beta-small">Booking {record.booking_id}</p>
+            </article>
           ) : resource === "photos" ? (
             <PhotoReview
               key={record.id}
