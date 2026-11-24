@@ -304,6 +304,12 @@ test("host closure hides availability, purges private media and tombstones ident
   f.db.sqlite
     .prepare("INSERT INTO mp_reviews VALUES(?,?,?,?,?,?)")
     .run(bookingId, f.customer.id, 5, 1, "Private guest feedback", start);
+  f.db.sqlite
+    .prepare("INSERT INTO mp_review_details VALUES(?,4,'Approved feedback','APPROVED',1)")
+    .run(bookingId);
+  f.db.sqlite
+    .prepare("INSERT INTO mp_review_request_keys VALUES('review-id',?,'review-key',?,'digest')")
+    .run(f.customer.id, bookingId);
   const policies = f.db.sqlite
     .prepare("SELECT count(*) n FROM mp_policy_acceptances")
     .get().n;
@@ -335,6 +341,14 @@ test("host closure hides availability, purges private media and tombstones ident
     f.db.sqlite.prepare("SELECT private_feedback FROM mp_reviews").get()
       .private_feedback,
     null,
+  );
+  const written = f.db.sqlite.prepare("SELECT * FROM mp_review_details").get();
+  assert.equal(written.review_text, null);
+  assert.equal(written.publication_status, "NONE");
+  assert.equal(written.comfort_rating, 4);
+  assert.equal(
+    f.db.sqlite.prepare("SELECT count(*) n FROM mp_review_request_keys").get().n,
+    0,
   );
   assert.equal(
     f.db.sqlite.prepare("SELECT count(*) n FROM mp_ledger_entries").get().n,

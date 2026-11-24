@@ -17,7 +17,7 @@ November 15, 2026. **Live launch remains gated.** Local engineering/test evidenc
 
 - [ ] Approve/provision isolated Worker, D1/R2, restricted access, secrets and owner.
 - [ ] Exercise independent managed customer/host/reviewer/safety/finance accounts, verified email, recovery, sign-out, suspension, MFA and JWKS rotation.
-- [ ] Apply all eight migrations and run hosted multi-client contention/load and object-access checks.
+- [ ] Apply all ordered marketplace migrations and run hosted multi-client contention, load and object-access checks.
 - [ ] Exercise actual Stripe sandbox checkout/callbacks, cumulative partial/full refunds, tips, fees, disputes and account transfer reconciliation.
 - [ ] Establish two actual authenticated browsers in a Daily private room; verify permissions, audio/video, reconnection, ending, report/block and activity synchronization.
 - [ ] Verify actual private media moderation/access, upload failure cleanup and bucket protections.

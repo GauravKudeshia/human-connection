@@ -71,16 +71,16 @@ async function fixture() {
     });
   };
   const auth = createBrowserAuth(db, config, { fetcher, clock: () => now });
-  async function login() {
+  async function login(query = "step_up=1", expectMfa = true) {
     const response = await auth.login(
       new Request(
-        "https://hc.example.test/api/marketplace/auth/login?step_up=1",
+        "https://hc.example.test/api/marketplace/auth/login?" + query,
       ),
     );
     const url = new URL(response.headers.get("location"));
     nonce = url.searchParams.get("nonce");
     challenge = url.searchParams.get("code_challenge");
-    assert.equal(url.searchParams.get("max_age"), "0");
+    assert.equal(url.searchParams.get("max_age"), expectMfa ? "0" : null);
     assert.equal(url.searchParams.get("code_challenge_method"), "S256");
     const cookie = response.headers.get("set-cookie").split(";")[0];
     return { state: url.searchParams.get("state"), cookie };
@@ -108,6 +108,20 @@ async function fixture() {
     calls: () => tokenCalls,
   };
 }
+
+test("separate workspaces return only to fixed same-origin pages and staff requests MFA", async (t) => {
+  const f = await fixture();
+  t.after(() => f.db.close());
+  const host = await f.callback(await f.login("workspace=host&return_to=https://other.test/", false));
+  assert.equal(host.headers.get("location"), "https://hc.example.test/host/login");
+  const staff = await f.callback(await f.login("workspace=staff"));
+  assert.equal(staff.headers.get("location"), "https://hc.example.test/admin/login");
+  await assert.rejects(
+    () =>
+      f.auth.login(new Request("https://hc.example.test/api/marketplace/auth/login?workspace=//other.test")),
+    { status: 400 },
+  );
+});
 test("browser login uses PKCE and a single-use nonce, then issues an encrypted revocable HttpOnly session", async (t) => {
   const f = await fixture();
   t.after(() => f.db.close());

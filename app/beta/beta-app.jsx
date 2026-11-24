@@ -9,19 +9,32 @@ import {
   experiences,
 } from "../../lib/catalog.mjs";
 import { styleRecommendationMessages } from "../../lib/style-recommendation.mjs";
+import {
+  languageName,
+  languageProficiency,
+  normalizeLanguageTag,
+  readHostLanguages,
+} from "../../lib/conversation-languages.mjs";
 import { createBetaApi, human, money } from "./beta-api.mjs";
 import { HostWorkspace, OperationsWorkspace, useResource } from "./beta-panels";
 import BetaSession from "./beta-session";
-import { ClosureReceipt, PrivacyAccount, VisitConsent } from "./beta-additions";
+import {
+  ClosureReceipt,
+  PrivacyAccount,
+  ReviewScores,
+  VisitConsent,
+  WrittenReviews,
+} from "./beta-additions";
 
 const defaults = {
   experience: null,
   style: null,
   duration: 15,
   format: "video",
-  language: "English",
+  language: "en",
 };
 const staffRoles = ["admin", "host_reviewer", "safety", "finance"];
+const workspaceViews = { customer: "choose", host: "host", staff: "operations" };
 const independentActions = new Set(["end-session", "report", "block"]);
 const activeBookings = new Set(["REQUESTED", "ACCEPTED", "READY", "LIVE"]);
 
@@ -32,10 +45,10 @@ function storeBookingInUrl(bookingId) {
   history.replaceState(history.state, "", url.pathname + url.search + url.hash);
 }
 
-export default function BetaApp({ request = fetch } = {}) {
+export default function BetaApp({ request = fetch, workspace = "customer" } = {}) {
   const [session, setSession] = useState(null);
   const [me, setMe] = useState(null);
-  const [view, setView] = useState("choose");
+  const [view, setView] = useState(workspaceViews[workspace]);
   const [preferences, setPreferences] = useState(defaults);
   const [selected, setSelected] = useState(null);
   const [preferredHost, setPreferredHost] = useState(null);
@@ -54,7 +67,7 @@ export default function BetaApp({ request = fetch } = {}) {
     setSelected(null);
     storeBookingInUrl(null);
     setPreferredHost(null);
-    setView("choose");
+    setView(workspaceViews[workspace]);
     setNotice("");
   }
   const [api] = useState(() => createBetaApi(request, clearIdentity));
@@ -199,6 +212,26 @@ export default function BetaApp({ request = fetch } = {}) {
   const roles = me?.roles || [];
   const configured = session?.configured === true;
   const signedIn = session?.authenticated === true && me;
+  const staffAccess = roles.some((role) => staffRoles.includes(role));
+  const staffWorkspace = workspace === "staff";
+  const signIn = "/api/marketplace/auth/login?workspace=" + workspace;
+  if (staffWorkspace && signedIn && (!staffAccess || !me.staffStepUp))
+    return (
+      <main className="beta-shell">
+        <section className="beta-card">
+          <h1>Staff workspace</h1>
+          <p>
+            {staffAccess
+              ? "A recent multi-factor sign-in is required."
+              : "This account has no staff permissions."}
+          </p>
+          {staffAccess && (
+            <a className="beta-primary" href={signIn}>Verify your sign-in</a>
+          )}
+          <Link className="beta-secondary" href="/beta">Customer workspace</Link>
+        </section>
+      </main>
+    );
   return (
     <div className="beta-shell">
       <a className="beta-skip" href="#beta-main">
@@ -248,7 +281,7 @@ export default function BetaApp({ request = fetch } = {}) {
             >
               {roles.includes("host") ? "Host studio" : "Become a host"}
             </button>
-            {roles.some((role) => staffRoles.includes(role)) && (
+            {staffAccess && (
               <button
                 aria-current={view === "operations" ? "page" : undefined}
                 onClick={() => navigate("operations")}
@@ -318,13 +351,18 @@ export default function BetaApp({ request = fetch } = {}) {
             <div>
               <p className="beta-eyebrow">SHORT, HOSTED HUMAN EXPERIENCES</p>
               <h1>
-                A little human time,
-                <br />
-                <em>chosen by you.</em>
+                {staffWorkspace
+                  ? "Staff sign-in"
+                  : workspace === "host"
+                    ? "Host studio"
+                    : <>A little human time,<br /><em>chosen by you.</em></>}
               </h1>
               <p>
-                Talk about your day, take a playful detour, or let us suggest
-                a moment with a human host.
+                {staffWorkspace
+                  ? "Use your assigned staff account and multi-factor sign-in."
+                  : workspace === "host"
+                    ? "Sign in to apply or manage your hosting workspace."
+                    : "Choose a laugh, a listening ear, or a playful break with a human host."}
               </p>
               {configured ? (
                 <>
@@ -332,12 +370,11 @@ export default function BetaApp({ request = fetch } = {}) {
                     className="beta-primary"
                     onClick={() =>
                       location.assign(
-                        new URL("/api/marketplace/auth/login", location.origin)
-                          .href,
+                        new URL(signIn, location.origin).href,
                       )
                     }
                   >
-                    Sign in or create an account
+                    {staffWorkspace ? "Staff sign-in" : "Sign in or create an account"}
                   </button>
                   <p className="beta-small">
                     Your sign-in provider also handles account recovery. Adults
@@ -463,6 +500,7 @@ export default function BetaApp({ request = fetch } = {}) {
       <footer className="beta-footer">
         <span>Adults 18+ · U.S. · Platonic, non-clinical experiences</span>
         <Link href="/">Interactive demo</Link>
+        {workspace === "customer" && <Link href="/host/login">Become a host</Link>}
         <span>
           Private calls use participant access. Recording is off by default.
         </span>
@@ -493,6 +531,22 @@ function CustomerChoice({
     null,
     revision,
   );
+  const {
+    data: languages,
+    error: languageError,
+    loading: loadingLanguages,
+  } = useResource(
+    api,
+    "languages",
+    null,
+    revision,
+    {
+      ...(preferences.experience ? { experience: preferences.experience } : {}),
+      format: preferences.format,
+      ...(preferredHost ? { hostId: preferredHost.user_id } : {}),
+    },
+    12000,
+  );
   const [consent, setConsent] = useState(false);
   const [hosts, setHosts] = useState(null);
   const [searching, setSearching] = useState(false);
@@ -510,7 +564,18 @@ function CustomerChoice({
   );
   const styles = experience ? bookableStylesFor(experience.id) : [];
   const selectedStyle = styles.find(({ id }) => id === preferences.style);
+  const preferredLanguage = normalizeLanguageTag(preferences.language);
+  const selectedLanguage = languages?.find(
+    ({ tag }) => tag === preferredLanguage,
+  );
+  const canMatchLanguage = selectedLanguage?.availableNow === true;
   const eligible = me.eligible === true || eligibility?.eligible === true;
+  const canRequest =
+    eligible &&
+    canMatchLanguage &&
+    !searching &&
+    !suggesting &&
+    !busy;
   useEffect(
     () => () => {
       suggestionVersion.current++;
@@ -539,25 +604,21 @@ function CustomerChoice({
     setSuggestion(null);
     setSuggestionNotice("");
   }
-  function trackExperience(experienceId) {
-    onExperienceSelected?.();
-    void api
-      .act("track", {
-        name: "experience_selected",
-        experience: experienceId,
-      })
-      .catch(() => {});
+  function trackChoice(name, experienceId) {
+    void api.act("track", { name, experience: experienceId }).catch(() => {});
   }
   function selectExperience(experienceId) {
     clearSuggestion();
     change({ ...preferences, experience: experienceId, style: null });
-    if (experienceId) trackExperience(experienceId);
+    if (experienceId) {
+      onExperienceSelected?.();
+      trackChoice("experience_selected", experienceId);
+    }
   }
   async function suggestStyle(requestedExperience) {
     const version = ++suggestionVersion.current;
-    const fromChooser = requestedExperience === "surprise";
     setSuggesting(true);
-    setSuggestionNotice(fromChooser ? "Finding a moment…" : "Finding a style…");
+    setSuggestionNotice("Finding a style…");
     resetSearch();
     try {
       const pick = await api.read("style-recommendation", null, {
@@ -570,15 +631,8 @@ function CustomerChoice({
       const style =
         pickedExperience &&
         bookableStylesFor(pickedExperience.id).find(({ id }) => id === pick?.style);
-      if (
-        !style ||
-        (!fromChooser && pickedExperience.id !== requestedExperience)
-      ) {
-        setSuggestionNotice(
-          fromChooser
-            ? "Choose the experience that fits today."
-            : styleRecommendationMessages["no-fit"],
-        );
+      if (!style || pickedExperience.id !== requestedExperience) {
+        setSuggestionNotice(styleRecommendationMessages["no-fit"]);
         return;
       }
       onChange((current) => ({
@@ -587,30 +641,22 @@ function CustomerChoice({
         style: style.id,
       }));
       setSuggestion(style.id);
+      trackChoice("style_selected", pickedExperience.id);
       setSuggestionNotice(
-        [
-          fromChooser
-            ? `Try ${pickedExperience.name} with ${style.name}.`
-            : `Try ${style.name}.`,
-          styleRecommendationMessages[pick.reason],
-        ]
+        [`Try ${style.name}.`, styleRecommendationMessages[pick.reason]]
           .filter(Boolean)
           .join(" "),
       );
-      if (fromChooser) trackExperience(pickedExperience.id);
     } catch {
       if (version === suggestionVersion.current)
-        setSuggestionNotice(
-          fromChooser
-            ? "Surprise Me is unavailable. Try again or choose an experience."
-            : "Surprise Me is unavailable. Try again or choose a style.",
-        );
+        setSuggestionNotice("Surprise Me is unavailable. Try again or choose a style.");
     } finally {
       if (version === suggestionVersion.current) setSuggesting(false);
     }
   }
   async function findHosts() {
-    if (!selectedStyle || suggesting) return;
+    if (!canRequest) return;
+    trackChoice("browse_hosts_opened", experience.id);
     const version = ++searchVersion.current;
     setSearching(true);
     setSearchError("");
@@ -635,7 +681,7 @@ function CustomerChoice({
     }
   }
   async function reserve(hostId) {
-    if (!selectedStyle || suggesting) return;
+    if (!canRequest) return;
     resetSearch();
     const version = searchVersion.current;
     const result = await run(
@@ -668,20 +714,11 @@ function CustomerChoice({
               className="beta-experience"
               key={choice.id}
               type="button"
-              disabled={choice.id === "surprise" && suggesting}
-              onClick={() =>
-                choice.id === "surprise"
-                  ? suggestStyle(choice.id)
-                  : selectExperience(choice.id)
-              }
+              onClick={() => selectExperience(choice.id)}
             >
               <Image
                 unoptimized
-                src={
-                  "/moments/" +
-                  (choice.id === "surprise" ? "cards" : choice.id) +
-                  ".webp"
-                }
+                src={"/moments/" + choice.id + ".webp"}
                 alt=""
                 width={640}
                 height={640}
@@ -736,7 +773,7 @@ function CustomerChoice({
             </div>
           )}
           <fieldset className="beta-style-picker">
-            <legend>Conversation style</legend>
+            <legend>Conversation style (optional)</legend>
             <div className="beta-style-options">
               {styles.map((style) => (
                 <button
@@ -746,7 +783,11 @@ function CustomerChoice({
                   aria-pressed={selectedStyle?.id === style.id && !suggestion}
                   onClick={() => {
                     clearSuggestion();
-                    change({ ...preferences, style: style.id });
+                    const next = selectedStyle?.id === style.id && !suggestion
+                      ? null
+                      : style.id;
+                    change({ ...preferences, style: next });
+                    if (next) trackChoice("style_selected", experience.id);
                   }}
                 >
                   <strong>{style.name}</strong>
@@ -807,13 +848,23 @@ function CustomerChoice({
             <label>
               Conversation language
               <select
-                value={preferences.language}
-                onChange={(event) =>
-                  change({ ...preferences, language: event.target.value })
-                }
+                value={selectedLanguage?.tag || ""}
+                disabled={loadingLanguages || !languages?.length}
+                aria-describedby="beta-language-status"
+                onChange={(event) => {
+                  change({ ...preferences, language: event.target.value });
+                  trackChoice("language_filter_applied", experience.id);
+                }}
               >
-                <option>English</option>
-                <option>Spanish</option>
+                <option value="" disabled>
+                  {loadingLanguages ? "Checking languages…" : "Choose a language"}
+                </option>
+                {languages?.map(({ tag, label, availableNow }) => (
+                  <option key={tag} value={tag}>
+                    {label}
+                    {availableNow ? "" : " · unavailable now"}
+                  </option>
+                ))}
               </select>
             </label>
           </div>
@@ -821,15 +872,23 @@ function CustomerChoice({
             Conversation language matches you with a host. The beta interface
             and shared prompts are in English.
           </p>
+          <div id="beta-language-status" className="beta-small" role="status">
+            {languageError ||
+              (languages?.length === 0
+                ? "Approved hosts haven’t listed a language for these choices yet."
+                : selectedLanguage && !canMatchLanguage
+                  ? "Hosts who speak this language are unavailable right now."
+                  : "")}
+          </div>
         </form>
         <div className="beta-card beta-choice-summary">
           <h2>Your session details</h2>
           <p>
             {preferences.duration} minutes · {human(preferences.format)} ·{" "}
-            {preferences.language}
+            {selectedLanguage?.label || "Choose a language"}
           </p>
           <p className="beta-small">
-            {selectedStyle?.name ?? "Choose a conversation style to continue."}
+            {selectedStyle?.name ?? "Conversation style is optional."}
           </p>
           {!eligible && (
             <div className="beta-eligibility">
@@ -870,9 +929,7 @@ function CustomerChoice({
           )}
           <button
             className="beta-primary"
-            disabled={
-              searching || suggesting || busy || !eligible || !selectedStyle
-            }
+            disabled={!canRequest}
             onClick={preferredHost ? findHosts : () => reserve()}
           >
             {preferredHost
@@ -884,9 +941,7 @@ function CustomerChoice({
           {!preferredHost && (
             <button
               className="beta-secondary"
-              disabled={
-                searching || suggesting || busy || !eligible || !selectedStyle
-              }
+              disabled={!canRequest}
               onClick={findHosts}
             >
               {searching ? "Checking availability…" : "I’ll choose a host"}
@@ -924,7 +979,7 @@ function CustomerChoice({
           >
             Adjust my choices
           </button>
-          <button className="beta-text" onClick={findHosts}>
+          <button className="beta-text" disabled={!canRequest} onClick={findHosts}>
             Check again
           </button>
         </div>
@@ -956,16 +1011,14 @@ function CustomerChoice({
                 )}
                 <p>{host.biography}</p>
                 {host.statistics && (
-                  <p className="beta-small">
-                    {host.statistics.delivered} delivered sessions ·{" "}
-                    {host.statistics.ratings
-                      ? Number(host.statistics.averageRating).toFixed(1) +
-                        " / 5 from " +
-                        host.statistics.ratings +
-                        " ratings"
-                      : "No public ratings yet"}
-                    {host.repeatGuest ? " · You’ve met before" : ""}
-                  </p>
+                  <>
+                    <p className="beta-small">
+                      {host.statistics.delivered} delivered sessions
+                      {host.repeatGuest ? " · You’ve met before" : ""}
+                    </p>
+                    <ReviewScores statistics={host.statistics} />
+                    <WrittenReviews reviews={host.writtenReviews} />
+                  </>
                 )}
                 {host.intro && (
                   <div className="beta-introduction">
@@ -996,12 +1049,19 @@ function CustomerChoice({
                   </div>
                 )}
                 <p className="beta-small">
-                  {parseList(host.languages).join(" · ")} ·{" "}
+                  {readHostLanguages(host.languages)
+                    .map(({ tag, proficiency }) =>
+                      proficiency
+                        ? `${languageName(tag)} (${languageProficiency[proficiency]})`
+                        : languageName(tag),
+                    )
+                    .join(" · ")}{" "}
+                  ·{" "}
                   {parseList(host.formats).map(human).join(" · ")}
                 </p>
                 <button
                   className="beta-primary"
-                  disabled={busy}
+                  disabled={!canRequest}
                   onClick={() => reserve(host.user_id)}
                 >
                   Request {host.display_name}
@@ -1070,7 +1130,11 @@ function BookingHistory({ api, revision, onSelect, onRepeat }) {
               >
                 {activeBookings.has(booking.status)
                   ? "Resume session"
-                  : "Session details"}
+                  : booking.review_saved
+                    ? "View session review"
+                    : booking.review_eligible
+                      ? "Review this session"
+                      : "Session details"}
               </button>
               {[
                 "COMPLETED",

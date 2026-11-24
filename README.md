@@ -25,7 +25,7 @@ The automated tests use transactional SQLite behind the D1 statement interface, 
 ## Configure the separate marketplace
 
 1. Copy `.env.example` to ignored `.dev.vars`. Keep credentials out of source control, browser code and chat.
-2. Run `npm run db:marketplace:local`. It applies all **eight** migrations in [the canonical order](db/marketplace-migrations.mjs), using only the local `MARKETPLACE_DB` in `wrangler.staging.example.jsonc`. This script rejects arguments and never uses `--remote`.
+2. Run `npm run db:marketplace:local`. It applies the migrations in [the canonical order](db/marketplace-migrations.mjs) to the local `MARKETPLACE_DB` in `wrangler.staging.example.jsonc`. This script rejects arguments and never uses `--remote`.
 3. Run `npm run build`, then `npm run start:marketplace:local`. The example configuration uses isolated marketplace database/media bindings and defaults the marketplace to disabled. Preserve the original demo `DB` binding in its existing configuration.
 4. Configure a managed OIDC tenant: issuer, access-token audience, JWKS URL, client ID/secret, and the exact application origin. Register `/api/marketplace/auth/callback`. Configure hosted sign-up, verified email, account recovery and staff MFA. Create a server-only random 32-byte session secret in the documented base64 format.
 5. Set `HC_MARKETPLACE_ENABLED=true` and `MARKETPLACE_MODE=staging` only in the isolated local/staging configuration. `/beta` then uses hosted OIDC/PKCE and encrypted, revocable HttpOnly sessions. Verified Bearer tokens are also accepted. Browser-supplied identity headers are ignored.
@@ -61,5 +61,8 @@ A hosted staging environment needs a reviewed copy of the example configuration,
 - [Architecture](docs/PRODUCTION-ARCHITECTURE.md), [roadmap](docs/IMPLEMENTATION-ROADMAP.md), [readiness](docs/PRODUCTION-READINESS-CHECKLIST.md)
 - [Security](docs/SECURITY-THREAT-MODEL.md), [provider decisions](docs/PROVIDER-INTEGRATION-DECISIONS.md), [operations](docs/BETA-OPERATIONS-RUNBOOK.md)
 - [QA evidence](docs/QA-AND-TEST-EVIDENCE.md) and [asset credits](ASSETS.md)
+- [V3 implementation tracker](docs/MASTER-IMPLEMENTATION-TRACKER.md), [research evidence](docs/RESEARCH-EVIDENCE-MATRIX.md), [competitor patterns](docs/COMPETITOR-ANALYSIS.md), and [unit economics](docs/MARKETPLACE-ECONOMICS.md)
 
 Preserve the cream, forest-green and terracotta identity, the three experience choices and the existing demo regression coverage. No social feed, random stranger chat, AI host, clinical treatment, default recording or invented real-host performance is introduced.
+
+The V3 staging entry routes are `/login` for customers, `/host/login` for applicants and hosts, and `/admin/login` for assigned staff. They share one OIDC identity. Staff access requires a stored role and recent MFA, with separate authorization checks on each privileged API operation.

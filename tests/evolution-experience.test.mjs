@@ -47,10 +47,11 @@ function completed(w) {
 
 test("Surprise Me gives a catalog starting pick in every experience without usable history", () => {
   const history = [
-    { experience: "laugh", style: "playful-banter", status: "COMPLETED", rating: 5 },
+    { experience: "laugh", style: "playful-banter", status: "PARTIAL_DELIVERY", rating: 5 },
     { experience: "hear", style: "obsolete-style", status: "COMPLETED", rating: 5 },
   ];
   for (const [experience, style] of [
+    ["laugh", "funny-stories"],
     ["hear", "my-day"],
     ["distract", "trivia-questions"],
   ])
@@ -99,7 +100,18 @@ test("Surprise Me leaves the choice to the guest if every style has negative fee
 test("value and private quality feedback preserve independent public ratings and one response per completed session", () => {
   const w = workspace();
   const bookingId = completed(w);
-  w.run("rate", { bookingId, rating: 4, review: "Public fictional review" });
+  w.run("rate", {
+    bookingId,
+    rating: 4,
+    comfortRating: 3,
+    review: "Public fictional review",
+  });
+  // A legacy caller editing the conversation score leaves the separate score intact.
+  w.run("rate", { bookingId, rating: 5, review: "Public fictional review" });
+  assert.throws(
+    () => w.run("rate", { bookingId, rating: 5, comfortRating: 6 }),
+    /one to five/,
+  );
   w.run(
     "worth-it",
     { bookingId, answer: "yes", details: "Private value detail" },
@@ -118,7 +130,8 @@ test("value and private quality feedback preserve independent public ratings and
     details: "Updated value detail",
   });
   const b = w.state.bookings[0];
-  assert.equal(b.rating, 4);
+  assert.equal(b.rating, 5);
+  assert.equal(b.comfortRating, 3);
   assert.equal(b.review, "Public fictional review");
   assert.equal(b.valueFeedback.answer, "no");
   assert.equal(b.valueFeedback.createdAt, originalCreated);
@@ -220,6 +233,7 @@ test("value metrics distinguish skipped, unanswered and eligible sessions with c
 test("closure removes public, value and private quality narratives while retaining simulated financial history", () => {
   const w = workspace();
   const bookingId = completed(w);
+  w.run("rate", { bookingId, rating: 5, comfortRating: 4 });
   w.run("worth-it", {
     bookingId,
     answer: "yes",
@@ -230,6 +244,7 @@ test("closure removes public, value and private quality narratives while retaini
   w.run("close-account");
   assert.equal(w.state.bookings[0].valueFeedback, undefined);
   assert.equal(w.state.bookings[0].qualityFeedback, undefined);
+  assert.equal(w.state.bookings[0].comfortRating, undefined);
   assert.equal(
     JSON.stringify(w.state).includes("Private value to remove"),
     false,

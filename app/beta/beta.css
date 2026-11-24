@@ -333,6 +333,10 @@
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 18px;
 }
+.beta-application-progress {
+  width: min(100%, 20rem);
+  accent-color: #43583e;
+}
 .beta-shell label {
   display: flex;
   flex-direction: column;
@@ -601,6 +605,21 @@
 .beta-metrics dd {
   margin: 10px 0 0;
   font-size: 25px;
+  color: #40553c;
+}
+.beta-review-scores {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+.beta-review-scores > div {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.beta-review-scores dd {
+  margin: 0;
   color: #40553c;
 }
 @media (max-width: 900px) {

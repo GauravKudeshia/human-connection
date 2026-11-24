@@ -24,8 +24,30 @@ import { hostPhoto } from "../../lib/presentation.mjs";
 import { expName, human, fmtTime } from "./shared";
 import ActivityPanel from "./activity-panel";
 
+function DemoRating({ label, question, rating, onChange }) {
+  return (
+    <div>
+      <h3>{label}</h3>
+      <p>{question}</p>
+      <div className="stars" role="group" aria-label={label}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            aria-label={`${n} ${n === 1 ? "star" : "stars"} for ${label}`}
+            aria-pressed={rating === n}
+            onClick={() => onChange(n)}
+          >
+            <Star aria-hidden="true" fill={n <= rating ? "currentColor" : "none"} size={28} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 function ReviewAndTip({ b, now, busy, act, navigate }) {
   const [rating, setRating] = useState(b.rating || 0),
+    [comfortRating, setComfortRating] = useState(b.comfortRating || 0),
     [review, setReview] = useState(b.review || ""),
     [tip, setTip] = useState(null),
     [custom, setCustom] = useState("");
@@ -42,20 +64,20 @@ function ReviewAndTip({ b, now, busy, act, navigate }) {
           This completed simulation can receive a demo rating. It is not a
           verified review of a real host.
         </p>
-        <div className="stars" role="group" aria-label="Demo host rating">
-          {[1, 2, 3, 4, 5].map((n) => (
-            <button
-              key={n}
-              aria-label={`Rate ${n} star${n > 1 ? "s" : ""}`}
-              aria-pressed={rating === n}
-              onClick={() => setRating(n)}
-            >
-              <Star fill={n <= rating ? "currentColor" : "none"} size={28} />
-            </button>
-          ))}
-        </div>
+        <DemoRating
+          label="Conversation Quality"
+          question="How would you rate the quality of your conversation?"
+          rating={rating}
+          onChange={setRating}
+        />
+        <DemoRating
+          label="Comfort & Respect"
+          question="How comfortable and respected did you feel?"
+          rating={comfortRating}
+          onChange={setComfortRating}
+        />
         <label className="field-label">
-          Optional demo review
+          Would you like to share anything about your experience? (optional)
           <textarea
             placeholder="Use fictional feedback only."
             maxLength={1000}
@@ -65,11 +87,11 @@ function ReviewAndTip({ b, now, busy, act, navigate }) {
         </label>
         <button
           className="secondary"
-          disabled={!rating || busy}
+          disabled={!rating || !comfortRating || busy}
           onClick={() =>
             act(
               "rate",
-              { bookingId: b.id, rating, review },
+              { bookingId: b.id, rating, comfortRating, review },
               "Your demo review is saved.",
             )
           }

@@ -1,10 +1,11 @@
 "use client";
 import React from "react";
-import { ArrowUpRight, Check, Sparkles } from "lucide-react";
+import { ArrowUpRight, Check } from "lucide-react";
 import { experienceChoices } from "../../lib/catalog.mjs";
 import { momentPhoto } from "../../lib/presentation.mjs";
 
 const captions = {
+  laugh: "Funny stories & playful banter",
   hear: "Space to talk about your day",
   distract: "Trivia, questions & games",
 };
@@ -27,20 +28,18 @@ export default function ExperienceBoard({ selected, onChoose }) {
             aria-pressed={selected === undefined ? undefined : current}
           >
             <img
-              src={momentPhoto(id === "surprise" ? "laugh" : id)}
+              src={momentPhoto(id)}
               alt=""
               width="640"
               height="640"
-              fetchPriority={id === "hear" ? "high" : "auto"}
+              fetchPriority={id === "laugh" ? "high" : "auto"}
             />
             <span className="moment-tile-copy">
               <span className="moment-tile-title">{name}</span>
               <span className="moment-tile-description">{captions[id] || note}</span>
             </span>
             <span className="moment-tile-arrow" aria-hidden="true">
-              {current ? <Check size={18} /> : id === "surprise" ? (
-                <Sparkles size={18} />
-              ) : <ArrowUpRight size={18} />}
+              {current ? <Check size={18} /> : <ArrowUpRight size={18} />}
             </span>
           </button>
         );

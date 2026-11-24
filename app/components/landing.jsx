@@ -14,7 +14,7 @@ import { momentPhoto } from "../../lib/presentation.mjs";
 import ExperienceBoard from "./experience-board";
 import { expName } from "./shared";
 
-const samples = ["hear-day", "distract-trivia", "distract-games"].map((id) =>
+const samples = ["laugh-banter", "hear-day", "distract-trivia"].map((id) =>
   activities.find((activity) => activity.id === id),
 );
 
@@ -78,8 +78,8 @@ export default function Landing({ onChoose, onBrowse, onHelp }) {
             In the mood for <em>good company?</em>
           </h1>
           <p className="welcome-intro">
-            Talk through your day, take a playful break, or let us suggest a
-            moment for you.
+            Share a laugh, talk through your day, or take a playful break with
+            a human host.
           </p>
           <p className="welcome-pricing">
             Try 15 minutes for {money(priceFor(15))} or 30 minutes for{" "}
@@ -92,6 +92,23 @@ export default function Landing({ onChoose, onBrowse, onHelp }) {
             Explore Hosts <ArrowUpRight size={16} aria-hidden="true" />
           </button>
         </div>
+      </section>
+      <section className="moment-how" aria-labelledby="moment-how-title">
+        <h2 id="moment-how-title">How a conversation works</h2>
+        <dl>
+          <div>
+            <dt>Choose your moment</dt>
+            <dd>Pick an experience, then set your time, language and format.</dd>
+          </div>
+          <div>
+            <dt>Review the booking</dt>
+            <dd>See the host and the total before you try demo checkout.</dd>
+          </div>
+          <div>
+            <dt>Explore the session</dt>
+            <dd>Try the audio or video controls and optional conversation starters.</dd>
+          </div>
+        </dl>
       </section>
       <ConversationStarter onChoose={onChoose} />
       <section className="promise-strip">

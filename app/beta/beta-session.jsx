@@ -8,6 +8,7 @@ import {
 } from "../../lib/catalog.mjs";
 import { human, money } from "./beta-api.mjs";
 import { useResource } from "./beta-panels";
+import { languageName } from "../../lib/conversation-languages.mjs";
 
 export default function BetaSession({
   api,
@@ -40,9 +41,6 @@ export default function BetaSession({
   const [reason, setReason] = useState("");
   const [category, setCategory] = useState("conduct");
   const [urgent, setUrgent] = useState(false);
-  const [feedback, setFeedback] = useState("");
-  const [rating, setRating] = useState("");
-  const [worth, setWorth] = useState("");
   const [tip, setTip] = useState("");
   const [showRefund, setShowRefund] = useState(false);
   const [refundReason, setRefundReason] = useState("");
@@ -144,7 +142,7 @@ export default function BetaSession({
               </h1>
               <p>
                 {booking.duration} minutes · {human(booking.format)} ·{" "}
-                {booking.language}
+                {languageName(booking.language) || booking.language}
               </p>
             </div>
             <span className="beta-session-price">
@@ -403,70 +401,14 @@ export default function BetaSession({
           )}
           {customer && completed && (
             <>
-              <form
-                className="beta-card"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  run(
-                    "review",
-                    {
-                      bookingId,
-                      ...(rating ? { rating: Number(rating) } : {}),
-                      ...(worth ? { worthIt: worth === "yes" } : {}),
-                      ...(feedback.trim() ? { privateFeedback: feedback } : {}),
-                    },
-                    "Your session feedback is saved.",
-                  );
-                }}
-              >
-                <h2>How was your experience?</h2>
-                <div className="beta-form-grid">
-                  <label>
-                    Public session rating
-                    <select
-                      value={rating}
-                      onChange={(event) => setRating(event.target.value)}
-                    >
-                      <option value="">Skip public rating</option>
-                      {[1, 2, 3, 4, 5].map((n) => (
-                        <option key={n} value={n}>
-                          {n} {n === 1 ? "star" : "stars"}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Was this experience worth what you paid?
-                    <select
-                      value={worth}
-                      onChange={(event) => setWorth(event.target.value)}
-                    >
-                      <option value="">Skip this question</option>
-                      <option value="yes">Yes</option>
-                      <option value="no">No</option>
-                    </select>
-                  </label>
-                </div>
-                <label>
-                  Private quality feedback
-                  <textarea
-                    value={feedback}
-                    onChange={(event) => setFeedback(event.target.value)}
-                    maxLength={1000}
-                  />
-                </label>
-                <p className="beta-small">
-                  Private quality feedback and the value answer are stored
-                  separately from your public rating. Use Report for safety
-                  concerns.
-                </p>
-                <button
-                  className="beta-primary"
-                  disabled={busy || (!rating && !worth && !feedback.trim())}
-                >
-                  Save feedback
-                </button>
-              </form>
+              <SessionReview
+                key={bookingId}
+                api={api}
+                run={run}
+                busy={busy}
+                bookingId={bookingId}
+                revision={revision}
+              />
               <div className="beta-card">
                 <h2>An optional thank you</h2>
                 <label>
@@ -663,6 +605,150 @@ export default function BetaSession({
     </section>
   );
 }
+function SessionReview({ api, run, busy, bookingId, revision }) {
+  const { data, error } = useResource(api, "my-review", bookingId, revision);
+  const [draft, setDraft] = useState(null);
+  const review = data?.review;
+  const publication = {
+    PENDING: "Written review awaiting moderation.",
+    APPROVED: "Written review approved for publication without your name.",
+    HIDDEN: "Written review kept off the host profile.",
+  };
+  function startReview() {
+    setDraft({
+      rating: review?.rating ? String(review.rating) : "",
+      comfortRating: review?.comfortRating ? String(review.comfortRating) : "",
+      worthIt: review?.worthIt == null ? "" : review.worthIt ? "yes" : "no",
+      privateFeedback: review?.privateFeedback || "",
+      reviewText: review?.reviewText || "",
+    });
+  }
+  function bind(field) {
+    return {
+      value: draft[field],
+      onChange: (event) => {
+        const value = event.target.value;
+        setDraft((previous) => ({ ...previous, [field]: value }));
+      },
+    };
+  }
+  if (error) return <p className="beta-alert" role="alert">{error}</p>;
+  if (!data) return null;
+  if (!data.eligible && !review) return null;
+  if (!draft || !data.eligible)
+    return (
+      <section className="beta-card">
+        <h2>Session review</h2>
+        {review && (
+          <>
+            {review.rating !== null && (
+              <p>Conversation Quality · {review.rating} / 5</p>
+            )}
+            {review.comfortRating !== null && (
+              <p>Comfort &amp; Respect · {review.comfortRating} / 5</p>
+            )}
+            {review.reviewText && <p>{review.reviewText}</p>}
+            {publication[review.publicationStatus] && (
+              <p className="beta-small">{publication[review.publicationStatus]}</p>
+            )}
+            {(review.privateFeedback || review.worthIt !== null) && (
+              <details>
+                <summary>Private feedback</summary>
+                {review.worthIt !== null && (
+                  <p>Worth what you paid · {review.worthIt ? "Yes" : "No"}</p>
+                )}
+                {review.privateFeedback && <p>{review.privateFeedback}</p>}
+              </details>
+            )}
+          </>
+        )}
+        {data.eligible && (
+          <button className="beta-secondary" onClick={startReview}>
+            {review ? "Edit review" : "Review this session"}
+          </button>
+        )}
+      </section>
+    );
+  const writtenChanged = draft.reviewText.trim() !== (review?.reviewText || "");
+  const privateChanged = draft.privateFeedback.trim() !== (review?.privateFeedback || "");
+  const writtenNeedsBoth = draft.reviewText.trim() && (!draft.rating || !draft.comfortRating);
+  const hasFeedback = draft.rating || draft.comfortRating || draft.worthIt || writtenChanged || privateChanged;
+  return (
+    <form
+      className="beta-card"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        const result = await run(
+          "review",
+          {
+            bookingId,
+            ...(draft.rating ? { rating: Number(draft.rating) } : {}),
+            ...(draft.comfortRating ? { comfortRating: Number(draft.comfortRating) } : {}),
+            ...(draft.worthIt ? { worthIt: draft.worthIt === "yes" } : {}),
+            ...(writtenChanged ? { reviewText: draft.reviewText } : {}),
+            ...(privateChanged ? { privateFeedback: draft.privateFeedback } : {}),
+          },
+          "Your session review is saved.",
+        );
+        if (result?.saved) setDraft(null);
+      }}
+    >
+      <h2>Review this session</h2>
+      <div className="beta-form-grid">
+        {[
+          ["Conversation Quality", "How would you rate the quality of your conversation?", "rating"],
+          ["Comfort & Respect", "How comfortable and respected did you feel?", "comfortRating"],
+        ].map(([label, question, field]) => (
+          <label key={field}>
+            {label}
+            <span className="beta-small">{question}</span>
+            <select {...bind(field)}>
+              <option value="">Skip this rating</option>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={n}>
+                  {n} {n === 1 ? "star" : "stars"}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </div>
+      <label>
+        Would you like to share anything about your experience? (optional)
+        <textarea {...bind("reviewText")} maxLength={1000} />
+      </label>
+      <p className="beta-small">
+        Written reviews require both ratings. Approved reviews can appear on the
+        host profile without your name. Leave out names and private details.
+      </p>
+      <details>
+        <summary>Private feedback</summary>
+        <label>
+          Was this experience worth what you paid?
+          <select {...bind("worthIt")}>
+            <option value="">Skip this question</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </label>
+        <label>
+          Private quality feedback (optional)
+          <textarea {...bind("privateFeedback")} maxLength={1000} />
+        </label>
+        <p className="beta-small">Use Report for safety concerns.</p>
+      </details>
+      <div className="beta-actions">
+        <button className="beta-primary" disabled={busy || !hasFeedback || Boolean(writtenNeedsBoth)}>
+          Save review
+        </button>
+        <button className="beta-secondary" type="button" onClick={() => setDraft(null)}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function Receipt({ receipt }) {
   const totals = receipt.receipt || receipt;
   return (

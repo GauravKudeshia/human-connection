@@ -19,7 +19,7 @@ import {
   bookableStylesFor,
   hosts,
 } from "../lib/catalog.mjs";
-import { recommendMoment, recommendStyle } from "../lib/style-recommendation.mjs";
+import { recommendStyle } from "../lib/style-recommendation.mjs";
 import { browserDemo } from "../lib/presentation.mjs";
 import { isTerminal, hasPendingReviews } from "../lib/demo-policy.mjs";
 import { hostAvailable, rankMatches } from "../lib/matching.mjs";
@@ -220,21 +220,13 @@ export default function ConnectionApp({ request = fetch } = {}) {
     }));
 
   const chooseExperience = (experience, style = null) => {
-    if (experience === "surprise") {
-      const pick = recommendMoment(historyForSuggestion());
-      setSuggestion(pick);
-      if (pick.experience)
-        setPreferences({ ...preferences, experience: pick.experience, style: pick.style });
-      setStep(pick.experience ? 1 : 0);
-    } else {
-      if (!bookableExperiences.some((item) => item.id === experience)) return;
-      const selected = bookableStylesFor(experience).some((item) => item.id === style)
-        ? style
-        : null;
-      setSuggestion(null);
-      setPreferences({ ...preferences, experience, style: selected });
-      setStep(selected ? 2 : 1);
-    }
+    if (!bookableExperiences.some((item) => item.id === experience)) return;
+    const selected = bookableStylesFor(experience).some((item) => item.id === style)
+      ? style
+      : null;
+    setSuggestion(null);
+    setPreferences({ ...preferences, experience, style: selected });
+    setStep(selected ? 2 : 1);
     setMatchError("");
     navigate("moment");
   };

@@ -122,8 +122,8 @@ export default function AppModal({
           <div className="info-item">
             <Check size={18} />
             <span>
-              Choose Hear Me Out, Distract Me, or Surprise Me. Suggestions use
-              completed session choices and feedback in your demo workspace.
+              Choose Make Me Laugh, Hear Me Out, or Distract Me. Surprise Me
+              can suggest a style using completed session choices and feedback.
             </span>
           </div>
           <div className="info-item">

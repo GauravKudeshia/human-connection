@@ -14,6 +14,8 @@ Before live host approval, qualified reviewers must approve actual policy/traini
 
 ## Booking and delivery
 
+For a first conversation, confirm the experience, preferred spoken language and format. Offer an optional starting question or activity, then follow the customer's pace. Acknowledge what they share and ask permission before changing to a personal topic. A customer can skip an activity, switch focus, or end the session. Keep the time and scope visible, end respectfully, and direct disagreement about charges or conduct to the platform's review tools. [Research evidence](RESEARCH-EVIDENCE-MATRIX.md)
+
 Read the authoritative booking before retrying. A decline/expiry can lead to another eligible unpaid request while preserving choices; neither searching nor being declined creates a charge. A started payment prevents automatic replacement and requires resolution. Inspect the quote, payment reference, immutable events and provider state when checkout and UI disagree.
 
 Provider attendance establishes delivery. A successful payment alone does not. Neither participant joining must produce failed-service review, including when no room was provisioned. Insufficient overlap, early termination and safety ending remain distinct from completion. End/report/block controls work independently. Room cleanup can be pending; inspect retries and provider state before reopening service.

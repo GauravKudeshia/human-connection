@@ -1,6 +1,14 @@
 "use client";
-import React, { useEffect, useState } from "react";
-import { experiences, stylesFor } from "../../lib/catalog.mjs";
+import React, { useEffect, useId, useRef, useState } from "react";
+import { experiences, styleName, stylesFor } from "../../lib/catalog.mjs";
+import {
+  languageName,
+  languageProficiency,
+  maxHostLanguages,
+  normalizeLanguageTag,
+  readHostLanguages,
+} from "../../lib/conversation-languages.mjs";
+import { BETA_PRICE_POLICY } from "../../lib/marketplace/pricing.mjs";
 import { human, money } from "./beta-api.mjs";
 import {
   HostQuality,
@@ -59,13 +67,21 @@ export function useResource(
 }
 export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
   const available = me.hostAvailable === true;
-  const { data: application, error } = useResource(
+  const {
+    data: application,
+    loading: applicationLoading,
+    error,
+  } = useResource(
     api,
     "application",
     null,
     revision,
   );
-  const { data: bookings } = useResource(
+  const {
+    data: bookings,
+    error: bookingsError,
+    loading: bookingsLoading,
+  } = useResource(
     api,
     "bookings",
     null,
@@ -75,7 +91,11 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
   );
   const { data: intros } = useResource(api, "my-intros", null, revision);
   const { data: earnings } = useResource(api, "host-earnings", null, revision);
-  const { data: draft } = useResource(api, "host-draft", null, revision);
+  const {
+    data: draft,
+    error: draftError,
+    loading: draftLoading,
+  } = useResource(api, "host-draft", null, revision);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [uploadNotice, setUploadNotice] = useState("");
@@ -83,12 +103,21 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
   const [consent, setConsent] = useState(false);
   const [appeal, setAppeal] = useState("");
   const isHost = me.roles.includes("host");
-  const approved = application?.status === "APPROVED";
+  const approved = isHost && application?.status === "APPROVED";
+  const canApply =
+    !application || ["DRAFT", "REJECTED"].includes(application.status);
+  const hostBookings = bookings?.filter((booking) => booking.host_id === me.id) || [];
+  const openBookings = hostBookings.filter((booking) =>
+    hostOpenStates.has(booking.status),
+  );
+  const historyBookings = hostBookings.filter(
+    (booking) => !hostOpenStates.has(booking.status),
+  );
   function changeAvailability(next) {
     return run(
       "heartbeat",
       { available: next },
-      next ? "You’re available for requests." : "Availability is off.",
+      next ? "Availability is on." : "Availability is off.",
     );
   }
   async function upload(event) {
@@ -144,15 +173,65 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
   }
   return (
     <section>
-      <p className="beta-eyebrow">YOUR HOST WORKSPACE</p>
-      <h1>
-        {isHost ? "Make good moments happen." : "Bring your kind of company."}
-      </h1>
-      <p>
-        Apply for the experiences you can deliver. Identity checks and an
-        experience review are required before paid bookings.
-      </p>
-      {error && <p className="beta-alert">{error}</p>}
+      <h1>{isHost ? "Host studio" : "Become a host"}</h1>
+      {!isHost && (
+        <p>
+          Apply for the experiences you can deliver. Identity checks and an
+          experience review are required before paid bookings.
+        </p>
+      )}
+      {error && (
+        <p className="beta-alert" role="alert">
+          {error}
+        </p>
+      )}
+      {approved && (
+        <section className="beta-card">
+          <h2>Availability</h2>
+          <p>
+            Keep the beta open to receive requests. Availability also requires
+            current verification and experience certification.
+          </p>
+          <div className="beta-actions">
+            <button
+              role="switch"
+              aria-checked={available}
+              className={available ? "beta-primary" : "beta-secondary"}
+              disabled={busy}
+              onClick={() => changeAvailability(!available)}
+            >
+              Accept immediate requests
+            </button>
+            <span className="beta-status" aria-hidden="true">
+              {available ? "Availability on" : "Availability off"}
+            </span>
+          </div>
+        </section>
+      )}
+      {isHost && (
+        <section aria-labelledby="beta-host-requests">
+          <h2 id="beta-host-requests">Requests and active sessions</h2>
+          {bookingsError && (
+            <p className="beta-alert" role="alert">
+              Could not refresh requests. {bookingsError}
+            </p>
+          )}
+          {openBookings.length ? (
+            <HostBookings
+              bookings={openBookings}
+              run={run}
+              busy={busy}
+              onSelect={onSelect}
+            />
+          ) : !bookingsError && (
+            <p className="beta-small" role="status">
+              {bookingsLoading
+                ? "Loading requests…"
+                : "New requests appear here when you are available."}
+            </p>
+          )}
+        </section>
+      )}
       {earnings && (
         <div className="beta-card">
           <h2>Recorded earnings</h2>
@@ -167,9 +246,19 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
         </div>
       )}
       {isHost && <HostQuality api={api} revision={revision} />}
+      {approved && (
+        <HostLanguageSettings
+          key={application.languages}
+          value={application.languages}
+          busy={busy}
+          run={run}
+        />
+      )}
       {application && (
         <article className="beta-card">
-          <span className="beta-status">{human(application.status)}</span>
+          <span className="beta-status">
+            {applicationLabels[application.status] || human(application.status)}
+          </span>
           <h2>{application.display_name}</h2>
           <p>{application.biography}</p>
           {application.review_reason && (
@@ -179,107 +268,95 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
           )}
         </article>
       )}
-      {(!application || ["DRAFT", "REJECTED"].includes(application.status)) && (
-        <HostApplication
-          key={JSON.stringify(draft)}
+      {canApply && (applicationLoading || draftLoading) && (
+        <p role="status">Loading your application…</p>
+      )}
+      {canApply && draftError && (
+        <p className="beta-alert" role="alert">
+          {draftError}
+        </p>
+      )}
+      {canApply && (
+        <HostApplicationEntry
+          key={me.id}
           run={run}
           busy={busy}
           application={application}
           draft={draft}
+          ready={!applicationLoading && !draftLoading && !error && !draftError}
         />
       )}
       {application && <ProfilePhotoUpload api={api} revision={revision} />}
       {application && (
-        <div className="beta-form-grid">
-          <section className="beta-card">
-            <h2>Your introduction</h2>
-            <p>
-              A short, 15–30-second introduction helps guests hear your style.
-              Include an accurate transcript.
+        <section className="beta-card">
+          <h2>Your introduction</h2>
+          <p>
+            A short, 15–30-second introduction helps guests hear your style.
+            Include an accurate transcript.
+          </p>
+          {intros?.[0] && (
+            <p className="beta-status">
+              Introduction · {human(intros[0].status)}
             </p>
-            {intros?.[0] && (
-              <p className="beta-status">
-                Introduction · {human(intros[0].status)}
-              </p>
-            )}
-            <form onSubmit={upload}>
-              <label>
-                Audio or video clip
-                <input
-                  name="clip"
-                  type="file"
-                  accept="audio/mpeg,audio/mp4,audio/webm,video/mp4,video/webm"
-                  required
-                />
-              </label>
-              <label>
-                Clip duration in seconds
-                <input
-                  name="duration"
-                  type="number"
-                  min="15"
-                  max="30"
-                  required
-                />
-              </label>
-              <label>
-                Transcript
-                <textarea
-                  value={transcript}
-                  onChange={(event) => setTranscript(event.target.value)}
-                  maxLength={2000}
-                  required
-                />
-              </label>
-              <label className="beta-checkbox">
-                <input
-                  type="checkbox"
-                  checked={consent}
-                  onChange={(event) => setConsent(event.target.checked)}
-                />
-                <span>
-                  I created or am authorized to publish this clip and consent to
-                  its use on my host profile after approval.
-                </span>
-              </label>
-              <button
-                className="beta-primary"
-                disabled={busy || uploading || !consent || !transcript.trim()}
-              >
-                {uploading ? "Uploading…" : "Submit introduction"}
-              </button>
-            </form>
-            {uploadError && (
-              <p className="beta-alert" role="alert">
-                {uploadError}
-              </p>
-            )}
-            {uploadNotice && (
-              <p className="beta-notice" role="status">
-                {uploadNotice}
-              </p>
-            )}
-          </section>
-          <section className="beta-card">
-            <h2>Availability</h2>
-            <p>
-              Keep the beta open to receive requests. When enabled, you can
-              receive another request after your current session ends.
-            </p>
+          )}
+          <form onSubmit={upload}>
+            <label>
+              Audio or video clip
+              <input
+                name="clip"
+                type="file"
+                accept="audio/mpeg,audio/mp4,audio/webm,video/mp4,video/webm"
+                required
+              />
+            </label>
+            <label>
+              Clip duration in seconds
+              <input
+                name="duration"
+                type="number"
+                min="15"
+                max="30"
+                required
+              />
+            </label>
+            <label>
+              Transcript
+              <textarea
+                value={transcript}
+                onChange={(event) => setTranscript(event.target.value)}
+                maxLength={2000}
+                required
+              />
+            </label>
+            <label className="beta-checkbox">
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(event) => setConsent(event.target.checked)}
+              />
+              <span>
+                I created or am authorized to publish this clip and consent to
+                its use on my host profile after approval.
+              </span>
+            </label>
             <button
-              role="switch"
-              aria-checked={available}
-              className={available ? "beta-primary" : "beta-secondary"}
-              disabled={busy || !approved}
-              onClick={() => changeAvailability(!available)}
+              className="beta-primary"
+              disabled={busy || uploading || !consent || !transcript.trim()}
             >
-              {available ? "Availability on" : "Availability off"}
+              {uploading ? "Uploading…" : "Submit introduction"}
             </button>
-            {!approved && (
-              <p className="beta-small">Availability opens after approval.</p>
-            )}
-          </section>
-        </div>
+          </form>
+          {uploadError && (
+            <p className="beta-alert" role="alert">
+              {uploadError}
+            </p>
+          )}
+          {uploadNotice && (
+            <p className="beta-notice" role="status">
+              {uploadNotice}
+            </p>
+          )}
+        </section>
       )}
       {application &&
         ["REJECTED", "SUSPENDED"].includes(application.status) && (
@@ -315,224 +392,467 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
             </button>
           </form>
         )}
-      {isHost && (
-        <section>
-          <h2>Incoming moments</h2>
-          <div className="beta-booking-list">
-            {bookings
-              ?.filter((booking) => booking.host_id === me.id)
-              .map((booking) => (
-                <article
-                  className="beta-card beta-booking-row"
-                  key={booking.id}
-                >
-                  <div>
-                    <span className="beta-status">{human(booking.status)}</span>
-                    <h3>
-                      {
-                        experiences.find(
-                          (item) => item.id === booking.experience,
-                        )?.name
-                      }
-                    </h3>
-                    <p>
-                      {booking.duration} minutes · {human(booking.format)} ·{" "}
-                      {booking.language}
-                    </p>
-                  </div>
-                  <div className="beta-actions">
-                    {booking.status === "REQUESTED" && (
-                      <>
-                        <button
-                          className="beta-primary"
-                          disabled={busy}
-                          onClick={() =>
-                            run(
-                              "accept",
-                              { bookingId: booking.id },
-                              "Request accepted.",
-                            )
-                          }
-                        >
-                          Accept request
-                        </button>
-                        <button
-                          className="beta-secondary"
-                          disabled={busy}
-                          onClick={() =>
-                            run(
-                              "decline",
-                              { bookingId: booking.id },
-                              "Request declined.",
-                            )
-                          }
-                        >
-                          Decline
-                        </button>
-                      </>
-                    )}
-                    <button
-                      className="beta-text"
-                      onClick={() => onSelect(booking)}
-                    >
-                      Open session
-                    </button>
-                  </div>
-                </article>
-              ))}
-          </div>
-          {!bookings?.some((booking) => booking.host_id === me.id) && (
-            <p className="beta-card">
-              Incoming requests will appear here when you are available.
-            </p>
-          )}
-        </section>
+      {isHost && historyBookings.length > 0 && (
+        <details className="beta-card">
+          <summary>Past hosted sessions</summary>
+          <HostBookings
+            bookings={historyBookings}
+            run={run}
+            busy={busy}
+            onSelect={onSelect}
+          />
+        </details>
       )}
     </section>
   );
 }
-function HostApplication({ run, busy, application, draft }) {
-  const [name, setName] = useState(
-    draft?.displayName || application?.display_name || "",
+
+const hostOpenStates = new Set(["REQUESTED", "ACCEPTED", "READY", "LIVE"]);
+const applicationLabels = {
+  SUBMITTED: "Application received",
+  IDENTITY_PENDING: "Identity verification pending",
+  REVIEW_PENDING: "Pending review",
+};
+
+function HostBookings({ bookings, run, busy, onSelect }) {
+  return (
+    <div className="beta-booking-list">
+      {bookings.map((booking) => (
+        <article className="beta-card beta-booking-row" key={booking.id}>
+          <div>
+            <span className="beta-status">{human(booking.status)}</span>
+            <h3>{experiences.find(({ id }) => id === booking.experience)?.name}</h3>
+            <p>
+              {booking.duration} minutes · {human(booking.format)} ·{" "}
+              {languageName(booking.language) || booking.language}
+            </p>
+          </div>
+          <div className="beta-actions">
+            {booking.status === "REQUESTED" && (
+              <>
+                <button
+                  className="beta-primary"
+                  disabled={busy}
+                  onClick={() =>
+                    run(
+                      "accept",
+                      { bookingId: booking.id },
+                      "Request accepted.",
+                    )
+                  }
+                >
+                  Accept request
+                </button>
+                <button
+                  className="beta-secondary"
+                  disabled={busy}
+                  onClick={() =>
+                    run(
+                      "decline",
+                      { bookingId: booking.id },
+                      "Request declined.",
+                    )
+                  }
+                >
+                  Decline
+                </button>
+              </>
+            )}
+            <button className="beta-text" onClick={() => onSelect(booking)}>
+              Open session
+            </button>
+          </div>
+        </article>
+      ))}
+    </div>
   );
-  const [bio, setBio] = useState(
-    draft?.biography || application?.biography || "",
+}
+
+function LanguageFields({ languages, onChange, disabled }) {
+  const [input, setInput] = useState("");
+  const [proficiency, setProficiency] = useState("");
+  const [message, setMessage] = useState("");
+  const examplesId = useId();
+  function addLanguage() {
+    const tag = normalizeLanguageTag(input);
+    if (!tag) {
+      setMessage("Enter a recognized language code, such as hi for Hindi.");
+      return;
+    }
+    const previous = languages.find((entry) => entry.tag === tag);
+    if (!previous && languages.length >= maxHostLanguages) {
+      setMessage(`Select up to ${maxHostLanguages} languages.`);
+      return;
+    }
+    onChange([
+      ...languages.filter((entry) => entry.tag !== tag),
+      { tag, proficiency: proficiency || null },
+    ]);
+    setInput("");
+    setProficiency("");
+    setMessage(previous ? "Speaking proficiency updated." : "Language added.");
+  }
+  return (
+    <fieldset disabled={disabled}>
+      <legend>Languages you can host in</legend>
+      <p className="beta-small">
+        Add each language you are comfortable hosting in. Guests can see your
+        self-reported proficiency.
+      </p>
+      <div className="beta-form-grid">
+        <label>
+          Language code
+          <input
+            value={input}
+            maxLength={64}
+            list={examplesId}
+            placeholder="For example, hi or es-MX"
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                addLanguage();
+              }
+            }}
+          />
+        </label>
+        <datalist id={examplesId}>
+          {["en", "hi", "bn", "es", "ar", "fr"].map((tag) => (
+            <option key={tag} value={tag}>{languageName(tag)}</option>
+          ))}
+        </datalist>
+        <label>
+          Speaking proficiency
+          <select
+            value={proficiency}
+            onChange={(event) => setProficiency(event.target.value)}
+          >
+            <option value="">Optional</option>
+            {Object.entries(languageProficiency).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <button
+        type="button"
+        className="beta-secondary"
+        disabled={!input.trim()}
+        onClick={addLanguage}
+      >
+        Add or update language
+      </button>
+      <p className="beta-small" role="status">
+        {message}
+      </p>
+      <ul>
+        {languages.map(({ tag, proficiency: level }) => (
+          <li key={tag}>
+            {languageName(tag)}
+            {level ? ` · ${languageProficiency[level]}` : ""}{" "}
+            <button
+              type="button"
+              className="beta-text"
+              aria-label={`Remove ${languageName(tag)}`}
+              onClick={() => {
+                onChange(languages.filter((entry) => entry.tag !== tag));
+                setMessage("Language removed.");
+              }}
+            >
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+    </fieldset>
   );
-  const [languages, setLanguages] = useState(draft?.languages || ["English"]);
-  const [formats, setFormats] = useState(draft?.formats || ["video"]);
-  const [styles, setStyles] = useState(draft?.styles || []);
-  const [accepted, setAccepted] = useState(false);
-  const toggle = (list, item) =>
-    list.includes(item)
-      ? list.filter((value) => value !== item)
-      : [...list, item];
+}
+
+function HostLanguageSettings({ value, busy, run }) {
+  const [languages, setLanguages] = useState(() => readHostLanguages(value));
   return (
     <form
       className="beta-card"
       onSubmit={(event) => {
         event.preventDefault();
         run(
-          "host-submit",
-          {
-            displayName: name,
-            biography: bio,
-            languages,
-            formats,
-            styles,
-            adult: accepted,
-            policyVersion: "beta-2026-11",
-            trainingVersion: "beta-2026-11",
-          },
-          "Your host application is submitted.",
+          "host-languages",
+          { languages },
+          "Your conversation languages were updated.",
         );
       }}
     >
+      <h2>Conversation languages</h2>
+      <LanguageFields languages={languages} onChange={setLanguages} disabled={busy} />
+      <button className="beta-primary" disabled={busy || !languages.length}>
+        Save conversation languages
+      </button>
+    </form>
+  );
+}
+
+function HostApplicationEntry({ ready, application, draft, ...props }) {
+  const [seed, setSeed] = useState(null);
+  // Seed after the first successful read. Later draft saves and polling
+  // failures must not reset the current stage or unsaved form values.
+  if (!seed && ready) setSeed({ application, draft });
+  return seed && (
+    <HostApplication
+      {...seed}
+      {...props}
+      hasDraft={Boolean(draft || seed.draft)}
+      busy={props.busy || !ready}
+    />
+  );
+}
+
+const applicationSteps = [
+  "Eligibility",
+  "Profile and interests",
+  "Languages",
+  "Formats and availability",
+  "Test prices",
+  "Conduct and consent",
+  "Review application",
+];
+
+function applicationChoices(draftValues, profileValues, fallback) {
+  if (Array.isArray(draftValues)) return draftValues;
+  try {
+    const parsed = JSON.parse(profileValues || "null");
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function HostApplication({ run, busy, application, draft, hasDraft }) {
+  const [step, setStep] = useState(0);
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
+  const [name, setName] = useState(
+    draft?.displayName ?? application?.display_name ?? "",
+  );
+  const [bio, setBio] = useState(draft?.biography ?? application?.biography ?? "");
+  const [languages, setLanguages] = useState(() =>
+    readHostLanguages(draft?.languages ?? application?.languages ?? []),
+  );
+  const [formats, setFormats] = useState(() =>
+    applicationChoices(draft?.formats, application?.formats, ["video"]),
+  );
+  const [styles, setStyles] = useState(() =>
+    applicationChoices(draft?.styles, application?.styles, []),
+  );
+  const [accepted, setAccepted] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const progressId = useId();
+  const heading = useRef(null);
+  const previousStep = useRef(step);
+  useEffect(() => {
+    if (previousStep.current === step) return;
+    previousStep.current = step;
+    heading.current?.focus();
+  }, [step]);
+
+  const choices = { displayName: name, biography: bio, languages, formats, styles };
+  const complete = [
+    ageConfirmed,
+    Boolean(name.trim() && bio.trim()),
+    languages.length > 0,
+    formats.length > 0,
+    true,
+    accepted,
+    true,
+  ];
+  const lastStep = applicationSteps.length - 1;
+  const toggle = (list, item) =>
+    list.includes(item)
+      ? list.filter((value) => value !== item)
+      : [...list, item];
+
+  const locked = busy || submitted;
+  async function advance(event) {
+    event.preventDefault();
+    if (locked || !complete[step]) return;
+    if (step < lastStep) {
+      setStep(step + 1);
+      return;
+    }
+    const incomplete = complete.indexOf(false);
+    if (incomplete !== -1) {
+      setStep(incomplete);
+      return;
+    }
+    const result = await run(
+      "host-submit",
+      {
+        ...choices,
+        adult: ageConfirmed,
+        policyVersion: "beta-2026-11",
+        trainingVersion: "beta-2026-11",
+      },
+      "Your host application is submitted.",
+    );
+    if (result) setSubmitted(true);
+  }
+
+  return (
+    <form className="beta-card" onSubmit={advance}>
       <h2>Your hosting application</h2>
-      <div className="beta-form-grid">
-        <label>
-          Public display name
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            maxLength={100}
-            required
-          />
-        </label>
-        <label>
-          Biography
-          <textarea
-            value={bio}
-            onChange={(event) => setBio(event.target.value)}
-            maxLength={1000}
-            required
-          />
-        </label>
-      </div>
-      <fieldset>
-        <legend>Languages you can host in</legend>
-        {["English", "Spanish"].map((language) => (
-          <label className="beta-checkbox" key={language}>
+      <p id={progressId} className="beta-small">
+        Step {step + 1} of {applicationSteps.length}{hasDraft ? " · Draft" : ""}
+      </p>
+      <progress
+        className="beta-application-progress"
+        aria-label="Application progress"
+        value={step + 1}
+        max={applicationSteps.length}
+      />
+      <h3 ref={heading} tabIndex={-1} aria-describedby={progressId}>
+        {applicationSteps[step]}
+      </h3>
+      {step === 0 && (
+        <>
+          <p>Use your existing account. Hosts must be 18 or older. U.S. eligibility and identity are reviewed before approval.</p>
+          <label className="beta-checkbox">
             <input
               type="checkbox"
-              checked={languages.includes(language)}
-              onChange={() => setLanguages(toggle(languages, language))}
+              checked={ageConfirmed}
+              onChange={(event) => setAgeConfirmed(event.target.checked)}
             />
-            {language}
+            <span>I am 18 or older.</span>
           </label>
-        ))}
-      </fieldset>
-      <fieldset>
-        <legend>Formats you offer</legend>
-        {["audio", "video"].map((format) => (
-          <label className="beta-checkbox" key={format}>
-            <input
-              type="checkbox"
-              checked={formats.includes(format)}
-              onChange={() => setFormats(toggle(formats, format))}
-            />
-            {human(format)}
-          </label>
-        ))}
-      </fieldset>
-      <fieldset>
-        <legend>Your experience interests</legend>
-        <div className="beta-form-grid">
-          {experiences.map((experience) => (
-            <div key={experience.id}>
-              <h3>{experience.name}</h3>
-              {stylesFor(experience.id).map((style) => (
-                <label className="beta-checkbox" key={style.id}>
-                  <input
-                    type="checkbox"
-                    checked={styles.includes(style.id)}
-                    onChange={() => setStyles(toggle(styles, style.id))}
-                  />
-                  {style.name}
-                </label>
+        </>
+      )}
+      {step === 1 && (
+        <>
+          <div className="beta-form-grid">
+            <label>
+              Public display name
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                maxLength={100}
+                required
+              />
+            </label>
+            <label>
+              Biography
+              <textarea
+                value={bio}
+                onChange={(event) => setBio(event.target.value)}
+                maxLength={1000}
+                required
+              />
+            </label>
+          </div>
+          <p className="beta-small">After submitting, upload a profile photo and short introduction from your host studio.</p>
+          <fieldset>
+            <legend>Conversation style interests</legend>
+            <div className="beta-form-grid">
+              {experiences.map((experience) => (
+                <div key={experience.id}>
+                  <h4>{experience.name}</h4>
+                  {stylesFor(experience.id).map((style) => (
+                    <label className="beta-checkbox" key={style.id}>
+                      <input
+                        type="checkbox"
+                        checked={styles.includes(style.id)}
+                        onChange={() => setStyles(toggle(styles, style.id))}
+                      />
+                      {style.name}
+                    </label>
+                  ))}
+                </div>
               ))}
             </div>
-          ))}
-        </div>
-      </fieldset>
-      <label className="beta-checkbox">
-        <input
-          type="checkbox"
-          checked={accepted}
-          onChange={(event) => setAccepted(event.target.checked)}
-        />
-        <span>
-          I am at least 18 and acknowledge the beta training and policy
-          boundaries, including platonic, non-clinical hosting and required
-          identity and experience review.
-        </span>
-      </label>
-      <button
-        type="button"
-        className="beta-secondary"
-        disabled={busy}
-        onClick={() =>
-          run(
-            "host-draft",
-            { displayName: name, biography: bio, languages, formats, styles },
-            "Application draft saved.",
-          )
-        }
-      >
-        Save draft
-      </button>
-      <button
-        className="beta-primary"
-        disabled={
-          busy ||
-          !accepted ||
-          !name.trim() ||
-          !bio.trim() ||
-          !languages.length ||
-          !formats.length
-        }
-      >
-        Submit application
-      </button>
+          </fieldset>
+        </>
+      )}
+      {step === 2 && (
+        <LanguageFields languages={languages} onChange={setLanguages} disabled={busy} />
+      )}
+      {step === 3 && (
+        <>
+          <p>Choose at least one format. Once approved, use the availability switch in your studio to receive immediate requests.</p>
+          <fieldset>
+            <legend>Formats you offer</legend>
+            {["audio", "video"].map((format) => (
+              <label className="beta-checkbox" key={format}>
+                <input
+                  type="checkbox"
+                  checked={formats.includes(format)}
+                  onChange={() => setFormats(toggle(formats, format))}
+                />
+                {human(format)}
+              </label>
+            ))}
+          </fieldset>
+        </>
+      )}
+      {step === 4 && (
+        <>
+          <p>
+            The sandbox rate is {money(BETA_PRICE_POLICY.prices[15])} for 15
+            minutes and {money(BETA_PRICE_POLICY.prices[30])} for 30 minutes.
+          </p>
+          <p className="beta-small">The staging journal records simulated earnings. Live host earnings and payouts require an approved merchant setup.</p>
+        </>
+      )}
+      {step === 5 && (
+        <>
+          <p>Respect guest privacy and keep conversations platonic and non-clinical. Identity and experience reviews are part of approval.</p>
+          <label className="beta-checkbox">
+            <input
+              type="checkbox"
+              checked={accepted}
+              onChange={(event) => setAccepted(event.target.checked)}
+            />
+            <span>I acknowledge the beta training and policy boundaries.</span>
+          </label>
+          <p className="beta-small">A saved draft keeps your profile choices. Confirm eligibility and consent again when you return.</p>
+        </>
+      )}
+      {step === lastStep && (
+        <dl>
+          <dt>Display name</dt>
+          <dd className="beta-wrap">{name}</dd>
+          <dt>Biography</dt>
+          <dd className="beta-wrap">{bio}</dd>
+          <dt>Languages</dt>
+          <dd>{languages.map(({ tag }) => languageName(tag)).join(" · ")}</dd>
+          <dt>Formats</dt>
+          <dd>{formats.map(human).join(" · ")}</dd>
+          {styles.length > 0 && (
+            <>
+              <dt>Conversation style interests</dt>
+              <dd>{styles.map(styleName).join(" · ")}</dd>
+            </>
+          )}
+        </dl>
+      )}
+      <div className="beta-actions">
+        {step > 0 && (
+          <button
+            type="button"
+            className="beta-secondary"
+            disabled={locked}
+            onClick={() => setStep(step - 1)}
+          >
+            Back
+          </button>
+        )}
+        <button
+          type="button"
+          className="beta-secondary"
+          disabled={locked}
+          onClick={() => run("host-draft", choices, "Application draft saved.")}
+        >
+          Save draft
+        </button>
+        <button className="beta-primary" disabled={locked || !complete[step]}>
+          {step === lastStep ? "Submit application" : "Continue"}
+        </button>
+      </div>
     </form>
   );
 }
@@ -544,6 +864,8 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
       ["intros", "Introductions"],
       ["photos", "Profile photos"],
       ["appeals", "Appeals"],
+      ["review-moderation", "Pending reviews"],
+      ["review-published", "Published reviews"],
     );
   if (roles.some((role) => ["safety", "admin"].includes(role)))
     tabs.push(
@@ -575,6 +897,9 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
     ? selected
     : tabs[0]?.[0];
   const isSafety = resource === "safety" || resource === "safety-history";
+  const isWrittenReview =
+    resource === "review-moderation" || resource === "review-published";
+  const isPaged = isSafety || isWrittenReview;
   const { data, error, loading } = useResource(
     api,
     resource || "me",
@@ -585,7 +910,7 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
           from: Date.parse(from + "T00:00:00Z"),
           to: Date.parse(to + "T00:00:00Z") + 86400000,
         }
-      : isSafety
+      : isPaged
         ? { page }
         : undefined,
   );
@@ -685,7 +1010,9 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
         <p className="beta-card">
           {resource === "safety-history"
             ? "There are no closed cases on this page."
-            : "There is nothing waiting on this page."}
+            : resource === "review-published"
+              ? "There are no published reviews on this page."
+              : "There is nothing waiting on this page."}
         </p>
       )}
       {resource === "analytics" && data && <AnalyticsSummary data={data} />}
@@ -694,7 +1021,14 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
       )}
       {Array.isArray(data) &&
         data.map((record) =>
-          resource === "photos" ? (
+          isWrittenReview ? (
+            <ReviewModeration
+              key={record.bookingId + ":" + record.textVersion}
+              record={record}
+              run={run}
+              busy={busy}
+            />
+          ) : resource === "photos" ? (
             <PhotoReview
               key={record.id}
               record={record}
@@ -718,14 +1052,17 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
             />
           ),
         )}
-      {isSafety && (page > 0 || data?.length === 100) && (
-        <div className="beta-actions" aria-label="Safety case pages">
+      {isPaged && (page > 0 || data?.length === 100) && (
+        <div
+          className="beta-actions"
+          aria-label={isSafety ? "Safety case pages" : "Written review pages"}
+        >
           <button
             className="beta-secondary"
             disabled={page === 0}
             onClick={() => setPage(page - 1)}
           >
-            Previous cases
+            {isSafety ? "Previous cases" : "Previous reviews"}
           </button>
           <span>Page {page + 1}</span>
           <button
@@ -733,13 +1070,47 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
             disabled={data?.length !== 100 || page >= 10000}
             onClick={() => setPage(page + 1)}
           >
-            Next cases
+            {isSafety ? "Next cases" : "Next reviews"}
           </button>
         </div>
       )}
     </section>
   );
 }
+function ReviewModeration({ record, run, busy }) {
+  function decide(publicationStatus) {
+    return run(
+      "review-publication",
+      {
+        bookingId: record.bookingId,
+        textVersion: record.textVersion,
+        publicationStatus,
+      },
+      publicationStatus === "APPROVED" ? "Written review approved." : "Written review hidden.",
+    );
+  }
+  return (
+    <article className="beta-card">
+      <h2>{record.publicationStatus === "PENDING" ? "Awaiting review" : "Approved written review"}</h2>
+      <blockquote>{record.reviewText}</blockquote>
+      <p className="beta-small">
+        Check for names, private conversation details and abusive content before
+        sharing. This decision applies to the written review.
+      </p>
+      <div className="beta-actions">
+        {record.publicationStatus === "PENDING" && (
+          <button className="beta-secondary" disabled={busy} onClick={() => decide("APPROVED")}>
+            Approve for sharing
+          </button>
+        )}
+        <button className="beta-secondary" disabled={busy} onClick={() => decide("HIDDEN")}>
+          Hide written review
+        </button>
+      </div>
+    </article>
+  );
+}
+
 function StaffRecord({ resource, record, run, busy }) {
   const [reason, setReason] = useState("");
   const [experience, setExperience] = useState("laugh");

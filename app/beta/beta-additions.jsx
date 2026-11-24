@@ -55,6 +55,40 @@ export function VisitConsent({ request = fetch, onChange }) {
     </div>
   );
 }
+export function ReviewScores({ statistics }) {
+  return (
+    <dl className="beta-review-scores beta-small" aria-label="Session ratings">
+      {[
+        ["Conversation Quality", statistics.averageRating, statistics.ratings],
+        ["Comfort & Respect", statistics.averageComfortRating, statistics.comfortRatings],
+      ].map(([label, average, count]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>
+            {count
+              ? `${Number(average).toFixed(1)} / 5 · ${count} ${count === 1 ? "rating" : "ratings"}`
+              : "No ratings yet"}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+export function WrittenReviews({ reviews }) {
+  if (!reviews?.length) return null;
+  return (
+    <details>
+      <summary>Moderated written reviews</summary>
+      <ul>
+        {reviews.map((review, index) => (
+          <li key={index}>{review}</li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 export function HostQuality({ api, revision }) {
   const { data, error } = useResource(api, "host-quality", null, revision);
   return (
@@ -75,14 +109,6 @@ export function HostQuality({ api, revision }) {
               </dd>
             </div>
             <div>
-              <dt>Public rating</dt>
-              <dd>
-                {data.ratings
-                  ? `${Number(data.averageRating).toFixed(1)} / 5 from ${data.ratings} ratings`
-                  : "No delivered ratings yet"}
-              </dd>
-            </div>
-            <div>
               <dt>Worth it</dt>
               <dd>
                 {data.valueYes || 0} yes / {data.valueAnswers || 0} answered
@@ -93,6 +119,8 @@ export function HostQuality({ api, revision }) {
               <dd>{data.serviceExceptions || 0}</dd>
             </div>
           </dl>
+          <ReviewScores statistics={data} />
+          <WrittenReviews reviews={data.writtenReviews} />
           <p className="beta-small">{data.definitions?.value}</p>
           {data.certifications?.map((c) => (
             <p key={c.experience}>
