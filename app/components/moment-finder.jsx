@@ -1,18 +1,18 @@
 "use client";
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect } from "react";
 import { ArrowLeft, ArrowRight, Check, Sparkles } from "lucide-react";
-import { stylesFor, styleName, money } from "../../lib/catalog.mjs";
+import { bookableStylesFor, styleName, money } from "../../lib/catalog.mjs";
 import { priceFor } from "../../lib/demo-policy.mjs";
-import {
-  recommendStyle,
-  styleRecommendationMessages,
-} from "../../lib/style-recommendation.mjs";
+import { styleRecommendationMessages } from "../../lib/style-recommendation.mjs";
 import ExperienceBoard from "./experience-board";
 import { SessionOptions } from "./booking-options";
 import { expName } from "./shared";
 export default function MomentFinder({
   preferences,
-  history = [],
+  suggestion,
+  onChooseExperience,
+  onChooseStyle,
+  onSuggestStyle,
   onChange,
   step,
   setStep,
@@ -25,34 +25,13 @@ export default function MomentFinder({
   error,
 }) {
   const heading = useRef(null);
-  const [suggestion, setSuggestion] = useState(null);
-  const styles = stylesFor(preferences.experience);
+  const styles = bookableStylesFor(preferences.experience);
   const style = styles.find((item) => item.id === preferences.style);
   const currentSuggestion =
     suggestion?.experience === preferences.experience ? suggestion : null;
   const surpriseSelected = Boolean(
     style && currentSuggestion?.style === style.id,
   );
-
-  function surpriseMe() {
-    const result = recommendStyle(
-      preferences.experience,
-      history.map((booking) => ({
-        experience: booking.experience,
-        style: booking.style,
-        status: booking.status,
-        rating: booking.rating,
-        worthIt:
-          booking.valueFeedback?.answer === "yes"
-            ? true
-            : booking.valueFeedback?.answer === "no"
-              ? false
-              : null,
-      })),
-    );
-    setSuggestion({ ...result, experience: preferences.experience });
-    if (result.style) onChange({ ...preferences, style: result.style });
-  }
 
   useEffect(() => {
     heading.current?.focus();
@@ -77,7 +56,6 @@ export default function MomentFinder({
         </ol>
       </div>
       <div className="journey-heading">
-        <span className="eyebrow">YOUR MOMENT, YOUR WAY</span>
         <h1 ref={heading} tabIndex={-1}>
           {
             [
@@ -98,14 +76,17 @@ export default function MomentFinder({
         </p>
       </div>
       {step === 0 && (
-        <ExperienceBoard
-          selected={preferences.experience}
-          onChoose={(experience) => {
-            setSuggestion(null);
-            onChange({ ...preferences, experience, style: null });
-            setStep(1);
-          }}
-        />
+        <>
+          <ExperienceBoard
+            selected={preferences.experience}
+            onChoose={onChooseExperience}
+          />
+          {suggestion?.reason === "no-fit" && !suggestion.experience && (
+            <p className="style-suggestion" role="status">
+              Choose Hear Me Out or Distract Me to continue.
+            </p>
+          )}
+        </>
       )}
       {step === 1 && (
         <>
@@ -120,10 +101,7 @@ export default function MomentFinder({
                   key={item.id}
                   className={`style-card ${selected ? "chosen" : ""}`}
                   aria-pressed={selected}
-                  onClick={() => {
-                    setSuggestion(null);
-                    onChange({ ...preferences, style: item.id });
-                  }}
+                  onClick={() => onChooseStyle(item.id)}
                 >
                   <strong>{item.name}</strong>
                   <span>{item.note}</span>
@@ -140,7 +118,7 @@ export default function MomentFinder({
             <button
               className={`style-card surprise-card ${surpriseSelected ? "chosen" : ""}`}
               aria-pressed={surpriseSelected}
-              onClick={surpriseMe}
+              onClick={onSuggestStyle}
             >
               <strong>
                 <Sparkles size={18} aria-hidden="true" /> Surprise Me
@@ -158,7 +136,9 @@ export default function MomentFinder({
           <div role="status">
             {(surpriseSelected || currentSuggestion?.reason === "no-fit") && (
               <p className="style-suggestion">
-                {surpriseSelected && <strong>{style.name}</strong>}{" "}
+                {surpriseSelected && (
+                  <strong>{expName(preferences.experience)} · {style.name}</strong>
+                )}
                 {styleRecommendationMessages[currentSuggestion.reason]}
               </p>
             )}
