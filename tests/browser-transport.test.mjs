@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { makeBrowserRequest } from "../pages/transport.mjs";
+import { recommendStyle } from "../lib/style-recommendation.mjs";
 const storage = () => {
   const map = new Map();
   return {
@@ -26,6 +27,7 @@ test("public preview lets a guest complete a demo checkout and tip with no backe
   const hold = await run("hold", {
     hostId: "maya",
     experience: "hear",
+    style: "just-listen",
     format: "audio",
     duration: 15,
   });
@@ -33,17 +35,17 @@ test("public preview lets a guest complete a demo checkout and tip with no backe
   for (const action of ["accept", "checkout", "join", "complete-demo"])
     await run(action, b);
   await run("tip", { ...b, cents: 500 });
+  await run("rate", { ...b, rating: 5 });
   const saved = await (
     await makeBrowserRequest(store, key)("/api/state")
   ).json();
   assert.equal(saved.bookings[0].tipCents, 500);
   assert.equal(saved.journals.length, 3);
   assert.equal(saved.viewer.name, "Demo guest");
-  assert.equal(
-    (await (await makeBrowserRequest(storage(), key)("/api/state")).json())
-      .bookings.length,
-    0,
-  );
+  assert.deepEqual(recommendStyle("hear", saved.bookings), { style: "just-listen", reason: "liked" });
+  const otherTab = await (await makeBrowserRequest(storage(), key)("/api/state")).json();
+  assert.equal(otherTab.bookings.length, 0);
+  assert.equal(recommendStyle("hear", otherTab.bookings).reason, "starter");
 });
 
 test("a mid-session storage failure preserves the last saved workspace and requires explicit temporary recovery", async () => {
