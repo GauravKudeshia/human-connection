@@ -164,6 +164,13 @@ test("signed sandbox success events persist one capture and cannot be undone by 
     db.sqlite.prepare("SELECT status FROM mp_bookings").get().status,
     "READY",
   );
+  assert.deepEqual(
+    db.sqlite
+      .prepare("SELECT user_id || ':' || kind AS notice FROM mp_notifications ORDER BY user_id,kind")
+      .all()
+      .map((row) => row.notice),
+    ["customer:payment_confirmed", "customer:session_ready", "host:session_ready"],
+  );
   assert.equal(
     db.sqlite.prepare("SELECT count(*) AS n FROM mp_ledger_entries").get().n,
     2,
@@ -220,6 +227,13 @@ test("refund delivered before success produces a balanced reversal and prevents 
   await service.ingest(refund());
   await service.ingest(success());
   await service.ingest(refund());
+  assert.deepEqual(
+    db.sqlite
+      .prepare("SELECT user_id || ':' || kind AS notice FROM mp_notifications")
+      .all()
+      .map((row) => row.notice),
+    ["customer:refund_confirmed"],
+  );
   assert.equal(
     db.sqlite.prepare("SELECT status FROM mp_payments").get().status,
     "REFUNDED",
@@ -303,6 +317,20 @@ test("capture crossing an accepted deadline atomically expires and queues review
   );
   await delayed.ingest(refund());
   await delayed.ingest(success("evt_after_refund"));
+  assert.deepEqual(
+    db.sqlite
+      .prepare(
+        "SELECT user_id || ':' || kind AS notice FROM mp_notifications ORDER BY user_id,kind",
+      )
+      .all()
+      .map((row) => row.notice),
+    [
+      "customer:booking_expired",
+      "customer:payment_confirmed",
+      "customer:refund_confirmed",
+      "host:booking_expired",
+    ],
+  );
   assert.equal(
     db.sqlite.prepare("SELECT status FROM mp_refunds").get().status,
     "REFUNDED",
@@ -350,7 +378,7 @@ test("webhook verification requires raw-body signature, current timestamp and sa
     sign(live).then((s) => verifyStripeWebhook(live, s, secret, now)),
   );
 });
-test("private room adapter binds tokens to a room, limits lifetime and disables recording", async () => {
+test("private room adapter binds tokens to a room, limits audio grants and disables recording", async () => {
   assert.throws(
     () => createDailyTestProvider({ apiKey: "test" }),
     /authorized/,
@@ -371,14 +399,13 @@ test("private room adapter binds tokens to a room, limits lifetime and disables 
     { bookingId: "booking", format: "audio", expiresAt: now + 900000 },
     now,
   );
-  await video.participantToken(
-    {
-      roomName: "hc-test-booking",
-      actorId: "customer",
-      expiresAt: now + 900000,
-    },
-    now,
-  );
+  const grant = {
+    roomName: "hc-test-booking",
+    actorId: "customer",
+    expiresAt: now + 900000,
+  };
+  await video.participantToken({ ...grant, format: "audio" }, now);
+  await video.participantToken({ ...grant, format: "video" }, now);
   assert.equal(calls[0].body.privacy, "private");
   assert.equal(calls[0].body.properties.enable_transcription_storage, false);
   assert.equal(calls[0].body.properties.max_participants, 2);
@@ -387,11 +414,20 @@ test("private room adapter binds tokens to a room, limits lifetime and disables 
   assert.equal(calls[1].body.properties.enable_recording_ui, false);
   assert.equal(calls[1].body.properties.start_cloud_recording, false);
   assert.equal(calls[1].body.properties.auto_start_transcription, false);
+  assert.deepEqual(calls[1].body.properties.permissions.canSend, ["audio"]);
+  assert.deepEqual(calls[2].body.properties.permissions.canSend, [
+    "audio",
+    "video",
+  ]);
   await assert.rejects(() =>
     video.participantToken(
-      { roomName: "wrong-room", actorId: "customer", expiresAt: now + 900000 },
+      { ...grant, roomName: "wrong-room", format: "audio" },
       now,
     ),
+  );
+  await assert.rejects(
+    () => video.participantToken(grant, now),
+    /Invalid private participant grant/,
   );
 });
 
@@ -706,6 +742,12 @@ test("cumulative partial refunds reverse delivered allocations once and converge
     f.db.sqlite.prepare("SELECT count(*) n FROM mp_refund_steps").get().n,
     1,
   );
+  assert.equal(
+    f.db.sqlite
+      .prepare("SELECT COUNT(*) n FROM mp_notifications WHERE kind='refund_confirmed'")
+      .get().n,
+    1,
+  );
   await Promise.all([
     f.service.ingest(cumulativeRefund(700)),
     f.service.ingest(refund()),
@@ -798,6 +840,14 @@ test("reviewed partial awards freeze the approved amount, survive retries and pe
   assert.equal(
     (await f.service.reviewRefund(actor, payload, "decision")).awardId,
     award.awardId,
+  );
+  assert.equal(
+    f.db.sqlite
+      .prepare(
+        "SELECT COUNT(*) n FROM mp_notifications WHERE user_id='customer' AND kind='refund_approved'",
+      )
+      .get().n,
+    1,
   );
   await assert.rejects(
     () =>

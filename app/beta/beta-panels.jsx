@@ -10,54 +10,72 @@ import {
   PrivacyReview,
 } from "./beta-additions";
 
-export function useResource(api, resource, id, revision, filters) {
-  const [snapshot, setSnapshot] = useState({ key: null, data: null });
-  const [error, setError] = useState("");
+export function useResource(
+  api,
+  resource,
+  id,
+  revision,
+  filters,
+  pollInterval = 8000,
+) {
+  const [snapshot, setSnapshot] = useState({ key: null, data: null, error: "" });
   const filterKey = JSON.stringify(filters || {});
   const resourceKey = resource + "|" + (id || "") + "|" + filterKey;
   useEffect(() => {
     let current = true;
-    let version = 0;
+    let timer;
     async function load() {
-      const requestVersion = ++version;
       try {
         const result = await api.read(resource, id, JSON.parse(filterKey));
-        if (current && requestVersion === version) {
-          setSnapshot({ key: resourceKey, data: result });
-          setError("");
-        }
+        if (current)
+          setSnapshot({ key: resourceKey, data: result, error: "" });
       } catch (issue) {
-        if (current && requestVersion === version) {
-          setSnapshot({ key: resourceKey, data: null });
-          setError(issue.message);
-        }
+        if (current)
+          setSnapshot((previous) => ({
+            key: resourceKey,
+            // A temporary polling failure should not unmount an active call.
+            data:
+              previous.key === resourceKey &&
+              (!issue.status || issue.status >= 500 || issue.status === 429)
+                ? previous.data
+                : null,
+            error: issue.message,
+          }));
+      } finally {
+        if (current && pollInterval > 0) timer = setTimeout(load, pollInterval);
       }
     }
     void load();
-    const timer = setInterval(load, 8000);
     return () => {
       current = false;
-      clearInterval(timer);
+      clearTimeout(timer);
     };
-  }, [api, resource, id, revision, filterKey, resourceKey]);
+  }, [api, resource, id, revision, filterKey, resourceKey, pollInterval]);
   return {
     data: snapshot.key === resourceKey ? snapshot.data : null,
-    error,
+    error: snapshot.key === resourceKey ? snapshot.error : "",
     loading: snapshot.key !== resourceKey,
   };
 }
 export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
+  const available = me.hostAvailable === true;
   const { data: application, error } = useResource(
     api,
     "application",
     null,
     revision,
   );
-  const { data: bookings } = useResource(api, "bookings", null, revision);
+  const { data: bookings } = useResource(
+    api,
+    "bookings",
+    null,
+    revision,
+    undefined,
+    available ? 4000 : 8000,
+  );
   const { data: intros } = useResource(api, "my-intros", null, revision);
   const { data: earnings } = useResource(api, "host-earnings", null, revision);
   const { data: draft } = useResource(api, "host-draft", null, revision);
-  const [available, setAvailable] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [uploadNotice, setUploadNotice] = useState("");
@@ -66,23 +84,12 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
   const [appeal, setAppeal] = useState("");
   const isHost = me.roles.includes("host");
   const approved = application?.status === "APPROVED";
-  useEffect(() => {
-    if (!available || !approved) return;
-    const heartbeat = setInterval(() => {
-      void api.act("heartbeat", { available: true }).catch((issue) => {
-        setAvailable(false);
-        setUploadError(issue.message);
-      });
-    }, 20000);
-    return () => clearInterval(heartbeat);
-  }, [api, available, approved]);
-  async function changeAvailability(next) {
-    const result = await run(
+  function changeAvailability(next) {
+    return run(
       "heartbeat",
       { available: next },
       next ? "You’re available for requests." : "Availability is off.",
     );
-    if (result) setAvailable(next);
   }
   async function upload(event) {
     event.preventDefault();
@@ -256,8 +263,8 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
           <section className="beta-card">
             <h2>Availability</h2>
             <p>
-              Keep this workspace open while available. Your presence expires if
-              heartbeats stop.
+              Keep the beta open to receive requests. When enabled, you can
+              receive another request after your current session ends.
             </p>
             <button
               role="switch"
@@ -266,7 +273,7 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
               disabled={busy || !approved}
               onClick={() => changeAvailability(!available)}
             >
-              {available ? "Available for requests" : "Availability off"}
+              {available ? "Availability on" : "Availability off"}
             </button>
             {!approved && (
               <p className="beta-small">Availability opens after approval.</p>
@@ -541,6 +548,7 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
   if (roles.some((role) => ["safety", "admin"].includes(role)))
     tabs.push(
       ["safety", "Safety"],
+      ["safety-history", "Closed cases"],
       ["accounts", "Account status"],
       ["alerts", "Operational alerts"],
     );
@@ -558,6 +566,7 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
       ["availability", "Host availability"],
     );
   const [selected, setSelected] = useState(null);
+  const [page, setPage] = useState(0);
   const [from, setFrom] = useState(() =>
     new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10),
   );
@@ -565,6 +574,7 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
   const resource = tabs.some(([key]) => key === selected)
     ? selected
     : tabs[0]?.[0];
+  const isSafety = resource === "safety" || resource === "safety-history";
   const { data, error, loading } = useResource(
     api,
     resource || "me",
@@ -575,7 +585,9 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
           from: Date.parse(from + "T00:00:00Z"),
           to: Date.parse(to + "T00:00:00Z") + 86400000,
         }
-      : undefined,
+      : isSafety
+        ? { page }
+        : undefined,
   );
   return (
     <section>
@@ -587,7 +599,10 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
           <button
             key={key}
             aria-pressed={resource === key}
-            onClick={() => setSelected(key)}
+            onClick={() => {
+              setSelected(key);
+              setPage(0);
+            }}
           >
             {label}
           </button>
@@ -667,7 +682,11 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
         </div>
       )}
       {Array.isArray(data) && !data.length && (
-        <p className="beta-card">There is nothing waiting in this queue.</p>
+        <p className="beta-card">
+          {resource === "safety-history"
+            ? "There are no closed cases on this page."
+            : "There is nothing waiting on this page."}
+        </p>
       )}
       {resource === "analytics" && data && <AnalyticsSummary data={data} />}
       {resource === "transfers" && data && (
@@ -699,6 +718,25 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
             />
           ),
         )}
+      {isSafety && (page > 0 || data?.length === 100) && (
+        <div className="beta-actions" aria-label="Safety case pages">
+          <button
+            className="beta-secondary"
+            disabled={page === 0}
+            onClick={() => setPage(page - 1)}
+          >
+            Previous cases
+          </button>
+          <span>Page {page + 1}</span>
+          <button
+            className="beta-secondary"
+            disabled={data?.length !== 100 || page >= 10000}
+            onClick={() => setPage(page + 1)}
+          >
+            Next cases
+          </button>
+        </div>
+      )}
     </section>
   );
 }

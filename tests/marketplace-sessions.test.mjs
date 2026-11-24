@@ -130,6 +130,22 @@ test("paid private grants require the matching participant and current host cert
   );
   f.db.close();
 });
+test("each participant grant uses the booked audio format", async () => {
+  const f = fixture();
+  f.db.sqlite.prepare("UPDATE mp_bookings SET format='audio'").run();
+  const formats = [];
+  f.provider.participantToken = async ({ actorId, format }) => {
+    formats.push([actorId, format]);
+    return { token: "test-" + actorId };
+  };
+  await f.service.roomToken({ id: "customer" }, "booking");
+  await f.service.roomToken({ id: "host" }, "booking");
+  assert.deepEqual(formats, [
+    ["customer", "audio"],
+    ["host", "audio"],
+  ]);
+  f.db.close();
+});
 test("only signed-provider dual overlap completes and allocates host and platform earnings once", async () => {
   const f = fixture();
   await f.service.roomToken({ id: "customer" }, "booking");

@@ -97,6 +97,45 @@ async function fixture() {
   };
 }
 
+test("presence renewal preserves availability across requests and cannot restore an expired or switched-off host", async (t) => {
+  const f = await fixture();
+  t.after(() => f.db.close());
+  const available = async () => (await f.service.read(f.host, "me")).hostAvailable;
+  const renew = () => f.act(f.host, "heartbeat", { available: true, renew: true });
+  assert.equal(await available(), true);
+  f.setNow(start + 25000);
+  assert.equal((await renew()).available, true);
+  f.setNow(start + 60000);
+  assert.equal(await available(), true);
+
+  await f.act(f.host, "heartbeat", { available: false });
+  assert.equal((await renew()).available, false);
+  assert.equal(await available(), false);
+  assert.deepEqual(await f.service.read(f.customer, "hosts", null, choice), []);
+
+  await f.act(f.host, "heartbeat", { available: true });
+  f.setNow(start + 105001);
+  assert.equal((await renew()).available, false);
+  assert.equal(await available(), false);
+  assert.equal((await f.act(f.host, "heartbeat", { available: true })).available, true);
+});
+
+test("routine reads avoid sweeping other users' bookings while participant reads enforce deadlines", async (t) => {
+  const f = await fixture();
+  t.after(() => f.db.close());
+  const { booking } = await f.reserve();
+  f.setNow(booking.expires_at);
+  await f.service.read(f.stranger, "bookings");
+  await f.service.read(f.customer, "me");
+  await assert.rejects(
+    () => f.service.read(f.stranger, "booking", booking.id),
+    { status: 404 },
+  );
+  const row = await f.db.prepare("SELECT status FROM mp_bookings WHERE id=?").bind(booking.id).first();
+  assert.equal(row.status, "REQUESTED");
+  assert.equal((await f.service.read(f.customer, "bookings"))[0].status, "EXPIRED");
+});
+
 test("32 independent customers share one atomic host claim and only the winner produces booking evidence", async (t) => {
   const f = await fixture();
   t.after(() => f.db.close());
@@ -406,4 +445,33 @@ test("host decline releases a request before payment and bilateral blocks exclud
     () => f.reserve(),
     (error) => error.code === "NO_MATCH",
   );
+});
+
+test("expiry and cancellation notify the affected participants once", async (t) => {
+  const f = await fixture();
+  t.after(() => f.db.close());
+  const { booking: expired } = await f.reserve();
+  f.setNow(expired.expires_at);
+  await Promise.all([f.service.expire(), f.service.expire()]);
+  for (const actor of [f.customer, f.host]) {
+    const updates = await f.service.read(actor, "notifications");
+    assert.equal(
+      updates.filter(
+        (row) => row.booking_id === expired.id && row.kind === "booking_expired",
+      ).length,
+      1,
+    );
+  }
+  const { booking: cancelled } = await f.reserve();
+  await f.act(f.customer, "cancel", { bookingId: cancelled.id });
+  const hostUpdates = await f.service.read(f.host, "notifications");
+  const customerUpdates = await f.service.read(f.customer, "notifications");
+  assert.equal(
+    hostUpdates.filter(
+      (row) => row.booking_id === cancelled.id && row.kind === "cancel",
+    ).length,
+    1,
+  );
+  assert.equal(customerUpdates.some((row) => row.booking_id === cancelled.id), false);
+  assert.deepEqual(await f.service.read(f.stranger, "notifications"), []);
 });

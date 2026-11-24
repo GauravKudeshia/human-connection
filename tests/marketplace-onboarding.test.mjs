@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { sqliteD1 } from "./marketplace-db.mjs";
 import { createMarketplace } from "../lib/marketplace/store.mjs";
+import { createOperationsConsole } from "../lib/marketplace/console.mjs";
 import {
   createOnboarding,
   createStripeVerificationLookup,
@@ -263,13 +264,22 @@ test("verification requires trusted provider evidence and stores references with
       absent.act(f.reviewer, "host-verification-review", { hostId: f.host.id }),
     (e) => e.status === 503,
   );
-  await f.service.act(f.reviewer, "host-verification-review", {
+  const evidence = {
     hostId: f.host.id,
     identityReference: "vs_fixture",
     payoutReference: "acct_fixture",
     adult: false,
     status: "REJECTED",
-  });
+  };
+  await Promise.all([
+    f.service.act(f.reviewer, "host-verification-review", evidence),
+    f.service.act(f.reviewer, "host-verification-review", evidence),
+  ]);
+  const updates = await f.market.read(f.host, "notifications");
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].kind, "host_verification");
+  assert.equal(updates[0].booking_id, null);
+  assert.deepEqual(await f.market.read(f.stranger, "notifications"), []);
   assert.equal(
     f.db.sqlite.prepare("SELECT status FROM mp_host_verifications").get()
       .status,
@@ -328,6 +338,97 @@ test("appeal replay is stable and approval returns a suspended host to review", 
       .prepare("SELECT count(*) n FROM mp_user_roles WHERE role='host'")
       .get().n,
     0,
+  );
+});
+test("appeals require a different reviewer from the person responsible for the adverse decision", async (t) => {
+  for (const issue of ["REJECTED", "SUSPENDED", "account suspension"]) {
+    await t.test(issue, async (caseTest) => {
+      const f = await fixture();
+      caseTest.after(() => f.db.close());
+      f.db.sqlite
+        .prepare("INSERT INTO mp_user_roles VALUES(?,?)")
+        .run(f.customer.id, "admin");
+      if (issue === "account suspension") {
+        f.db.sqlite
+          .prepare("INSERT INTO mp_user_roles VALUES(?,?)")
+          .run(f.reviewer.id, "admin");
+        const operators = createOperationsConsole(f.db, {
+          authorize: f.market.authorize,
+          clock: () => start,
+        });
+        await operators.accountStatus(f.reviewer, {
+          userId: f.host.id,
+          status: "SUSPENDED",
+          reason: "Test restriction",
+        });
+        await operators.accountStatus(f.customer, {
+          userId: f.host.id,
+          status: "ACTIVE",
+          reason: "Reinstate access for review",
+        });
+      } else {
+        await f.market.act(f.reviewer, "host-review", {
+          hostId: f.host.id,
+          status: issue,
+          reason: "Test decision",
+        });
+      }
+      const { appealId } = await f.service.act(
+        f.host,
+        "host-appeal",
+        { reason: "Fictional request for review." },
+        "independent-review",
+      );
+      const decision = {
+        appealId,
+        decision: "APPROVED",
+        reason: "Review again.",
+      };
+      await assert.rejects(
+        () => f.service.act(f.reviewer, "appeal-decision", decision),
+        (error) => error.code === "FORBIDDEN",
+      );
+      assert.deepEqual(
+        await f.service.act(f.customer, "appeal-decision", decision),
+        { status: "APPROVED", hostApprovalRequired: true },
+      );
+    });
+  }
+});
+test("an older appeal cannot overwrite a newer restriction or change who decided the original case", async (t) => {
+  const f = await fixture();
+  t.after(() => f.db.close());
+  f.db.sqlite
+    .prepare("INSERT INTO mp_user_roles VALUES(?,?)")
+    .run(f.customer.id, "admin");
+  await f.market.act(f.reviewer, "host-review", {
+    hostId: f.host.id,
+    status: "REJECTED",
+    reason: "Original decision",
+  });
+  const { appealId } = await f.service.act(
+    f.host,
+    "host-appeal",
+    { reason: "Review the original decision." },
+    "original-review",
+  );
+  await f.market.act(f.customer, "host-review", {
+    hostId: f.host.id,
+    status: "SUSPENDED",
+    reason: "Newer decision within the same millisecond",
+  });
+  const decision = { appealId, decision: "APPROVED", reason: "Review resolved." };
+  await assert.rejects(
+    () => f.service.act(f.reviewer, "appeal-decision", decision),
+    (error) => error.code === "FORBIDDEN",
+  );
+  assert.deepEqual(
+    await f.service.act(f.customer, "appeal-decision", decision),
+    { status: "APPROVED", hostApprovalRequired: false },
+  );
+  assert.equal(
+    (await f.market.read(f.host, "application")).status,
+    "SUSPENDED",
   );
 });
 test("Stripe verification lookup binds both provider references to the reviewed host and drops raw data", async () => {

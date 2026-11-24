@@ -30,6 +30,9 @@ export default function BetaSession({
   );
   const [payment, setPayment] = useState(null);
   const [reporting, setReporting] = useState(false);
+  const [submittingReport, setSubmittingReport] = useState(false);
+  const [blocking, setBlocking] = useState(false);
+  const [disconnectRequested, setDisconnectRequested] = useState(false);
   const [reason, setReason] = useState("");
   const [category, setCategory] = useState("conduct");
   const [urgent, setUrgent] = useState(false);
@@ -41,11 +44,13 @@ export default function BetaSession({
   const [refundReason, setRefundReason] = useState("");
   const [autoReplace, setAutoReplace] = useState(false);
   const replacementAttempt = useRef(null);
+  const reportInput = useRef(null);
   const quote =
     typeof booking?.quote === "string"
       ? JSON.parse(booking.quote)
       : booking?.quote;
   const customer = booking?.customer_id === me.id;
+  const inSession = ["READY", "LIVE"].includes(booking?.status);
   const terminal =
     booking &&
     [
@@ -58,6 +63,13 @@ export default function BetaSession({
       "FAILED_SERVICE",
     ].includes(booking.status);
   const completed = booking?.status === "COMPLETED";
+  const canRequestRefund =
+    customer &&
+    terminal &&
+    ["CAPTURED", "PARTIALLY_REFUNDED"].includes(receipt?.paymentState);
+  useEffect(() => {
+    if (reporting) reportInput.current?.focus();
+  }, [reporting]);
   useEffect(() => {
     if (
       !autoReplace ||
@@ -127,8 +139,11 @@ export default function BetaSession({
                   : "A guest is waiting for your answer."}
               </h2>
               <p>
-                A request expires automatically. Checkout opens after the host
-                accepts.
+                {customer ? "Host response window" : "Time to respond"}{" "}
+                <RemainingTime deadline={booking.expires_at} />
+              </p>
+              <p className="beta-small">
+                Checkout opens after the host accepts.
               </p>
               {customer ? (
                 <div>
@@ -209,8 +224,8 @@ export default function BetaSession({
                   : "Your guest is reviewing checkout."}
               </h2>
               <p>
-                Reservation ends{" "}
-                {new Date(booking.expires_at).toLocaleTimeString()}.
+                Time to complete checkout{" "}
+                <RemainingTime deadline={booking.expires_at} />
               </p>
               {quote && (
                 <dl className="beta-quote">
@@ -285,14 +300,19 @@ export default function BetaSession({
                 onClose={() => setPayment(null)}
               />
             )}
-          {["READY", "LIVE"].includes(booking.status) && (
+          {inSession && (
             <MediaSession
               api={api}
               run={run}
               busy={busy}
               booking={booking}
-              me={me}
               revision={revision}
+              disconnectRequested={disconnectRequested}
+              onDisconnect={() => setDisconnectRequested(true)}
+              onReport={() => {
+                if (reporting) reportInput.current?.focus();
+                else setReporting(true);
+              }}
             />
           )}
           {terminal && (
@@ -452,7 +472,7 @@ export default function BetaSession({
             {receiptError && <p>{receiptError}</p>}
             {receipt && <Receipt receipt={receipt} />}
             <div className="beta-actions">
-              {customer && terminal && (
+              {canRequestRefund && (
                 <button
                   className="beta-secondary"
                   disabled={busy}
@@ -461,29 +481,34 @@ export default function BetaSession({
                   Request refund review
                 </button>
               )}
-              <button
-                className="beta-secondary"
-                onClick={() => setReporting(!reporting)}
-              >
-                Report a concern
-              </button>
+              {!inSession && (
+                <button
+                  className="beta-secondary"
+                  onClick={() => setReporting(!reporting)}
+                >
+                  Report a concern
+                </button>
+              )}
               <button
                 className="beta-text"
-                disabled={busy}
-                onClick={() =>
-                  run(
+                disabled={blocking}
+                onClick={async () => {
+                  if (inSession) setDisconnectRequested(true);
+                  setBlocking(true);
+                  await run(
                     "block",
                     {
                       userId: customer ? booking.host_id : booking.customer_id,
                     },
                     "This account is blocked from future matching.",
-                  )
-                }
+                  );
+                  setBlocking(false);
+                }}
               >
-                Block future matching
+                {inSession ? "End session and block" : "Block future matching"}
               </button>
             </div>
-            {showRefund && (
+            {showRefund && canRequestRefund && (
               <form
                 className="beta-report"
                 onSubmit={async (event) => {
@@ -522,15 +547,19 @@ export default function BetaSession({
                 className="beta-report"
                 onSubmit={async (event) => {
                   event.preventDefault();
-                  if (
-                    await run(
-                      "report",
-                      { bookingId, category, reason, urgent },
-                      "Your report is recorded.",
-                    )
-                  ) {
+                  if (submittingReport) return;
+                  if (urgent && inSession) setDisconnectRequested(true);
+                  setSubmittingReport(true);
+                  const result = await run(
+                    "report",
+                    { bookingId, category, reason, urgent },
+                    "Your report is recorded.",
+                  );
+                  setSubmittingReport(false);
+                  if (result) {
                     setReporting(false);
                     setReason("");
+                    setUrgent(false);
                   }
                 }}
               >
@@ -561,6 +590,7 @@ export default function BetaSession({
                 <label>
                   What happened?
                   <textarea
+                    ref={reportInput}
                     value={reason}
                     onChange={(event) => setReason(event.target.value)}
                     maxLength={2000}
@@ -575,12 +605,22 @@ export default function BetaSession({
                   />
                   <span>Mark urgent and end any active session.</span>
                 </label>
-                <button
-                  className="beta-primary"
-                  disabled={busy || !reason.trim()}
-                >
-                  Submit report
-                </button>
+                <div className="beta-actions">
+                  <button
+                    className="beta-primary"
+                    disabled={submittingReport || !reason.trim()}
+                  >
+                    {submittingReport ? "Submitting report…" : "Submit report"}
+                  </button>
+                  <button
+                    type="button"
+                    className="beta-text"
+                    disabled={submittingReport}
+                    onClick={() => setReporting(false)}
+                  >
+                    Close report form
+                  </button>
+                </div>
                 <p className="beta-small">
                   Use local emergency services for immediate danger. Hosts
                   provide ordinary conversation and entertainment.
@@ -623,7 +663,31 @@ function Receipt({ receipt }) {
     </dl>
   );
 }
-function MediaSession({ api, run, busy, booking, revision }) {
+function RemainingTime({ deadline }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!deadline) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [deadline]);
+  if (!deadline) return null;
+  const seconds = Math.max(0, Math.ceil((deadline - now) / 1000));
+  return (
+    <span role="timer">
+      {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
+    </span>
+  );
+}
+function MediaSession({
+  api,
+  run,
+  busy,
+  booking,
+  revision,
+  disconnectRequested,
+  onDisconnect,
+  onReport,
+}) {
   const { data: session, error } = useResource(
     api,
     "session",
@@ -635,26 +699,21 @@ function MediaSession({ api, run, busy, booking, revision }) {
   const [mediaError, setMediaError] = useState("");
   const [audioOff, setAudioOff] = useState(false);
   const [videoOff, setVideoOff] = useState(booking.format === "audio");
+  const [ending, setEnding] = useState(false);
   const frameElement = useRef(null);
   const call = useRef(null);
-  const runRef = useRef(run);
   useEffect(() => {
-    runRef.current = run;
-  }, [run]);
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  useEffect(() => {
-    if (!grant || !frameElement.current) return;
+    const container = frameElement.current;
+    if (!grant || !container || disconnectRequested) return;
     let cancelled = false;
+    let frame;
     async function join() {
       try {
         const { default: DailyIframe } = await import("@daily-co/daily-js");
         if (cancelled) return;
-        const frame = DailyIframe.createFrame(frameElement.current, {
-          showLeaveButton: true,
+        frame = DailyIframe.createFrame(container, {
+          showLeaveButton: false,
+          showFullscreenButton: false,
           iframeStyle: {
             width: "100%",
             height: "100%",
@@ -663,44 +722,57 @@ function MediaSession({ api, run, busy, booking, revision }) {
           },
         });
         call.current = frame;
-        frame.on("joining-meeting", () => {
-          if (!cancelled) setConnection("Connecting");
-        });
+        let joined = false;
+        const interruptions = new Set();
+        function syncControls() {
+          setAudioOff(!frame.localAudio());
+          setVideoOff(!frame.localVideo());
+        }
+        function disconnected(message) {
+          if (cancelled) return;
+          setConnection("Disconnected");
+          setMediaError(message);
+          setGrant(null);
+        }
         frame.on("joined-meeting", () => {
-          if (!cancelled) setConnection("Connected");
+          if (cancelled) return;
+          joined = true;
+          syncControls();
+          setConnection(interruptions.size ? "Reconnecting" : "Connected");
+        });
+        frame.on("participant-updated", ({ participant }) => {
+          if (!cancelled && joined && participant?.local) syncControls();
         });
         frame.on("left-meeting", () => {
-          if (!cancelled) {
-            setConnection("Disconnected");
-            setGrant(null);
-            void runRef.current(
-              "end-session",
-              { bookingId: booking.id },
-              "You left the session.",
-            );
-          }
+          // A provider departure can be an interrupted connection. Only the
+          // app's explicit End session control should end the booking.
+          disconnected(
+            "The call disconnected. You can rejoin while this session is open.",
+          );
         });
-        frame.on("network-connection", ({ event }) => {
-          if (!cancelled)
-            setConnection(
-              event === "interrupted" ? "Reconnecting" : "Connected",
-            );
+        frame.on("network-connection", ({ event, type }) => {
+          if (cancelled) return;
+          const connectionType = type === "signaling" ? "signaling" : "media";
+          if (event === "interrupted") interruptions.add(connectionType);
+          else if (event === "connected") interruptions.delete(connectionType);
+          if (joined)
+            setConnection(interruptions.size ? "Reconnecting" : "Connected");
         });
         frame.on("error", () => {
-          if (!cancelled) {
-            setConnection("Connection interrupted");
-            setMediaError(
-              "The room connection was interrupted. Try rejoining or end the session.",
-            );
-            setGrant(null);
-          }
+          disconnected(
+            "The room connection was interrupted. Try rejoining or end the session.",
+          );
         });
         await frame.join({
           url: grant.roomUrl,
           token: grant.token,
           videoSource: booking.format !== "audio",
+          startAudioOff: grant.startAudioOff,
+          startVideoOff: grant.startVideoOff,
         });
       } catch {
+        if (cancelled) return;
+        setConnection("Disconnected");
         setMediaError(
           "The private room could not be opened. Check device permissions and try again.",
         );
@@ -710,115 +782,129 @@ function MediaSession({ api, run, busy, booking, revision }) {
     void join();
     return () => {
       cancelled = true;
-      if (call.current) {
-        void call.current.destroy();
-        call.current = null;
-      }
+      if (call.current === frame) call.current = null;
+      if (frame) void frame.destroy().catch(() => {});
     };
-  }, [grant, booking.format, booking.id]);
+  }, [grant, booking.format, disconnectRequested]);
   async function joinRoom() {
     setMediaError("");
     const result = await run("room-token", { bookingId: booking.id });
-    if (result?.token && result.roomUrl) setGrant(result);
+    if (result?.token && result.roomUrl) {
+      setConnection("Connecting");
+      setGrant({
+        ...result,
+        startAudioOff: audioOff,
+        startVideoOff: videoOff,
+      });
+    }
   }
-  const seconds = session?.deadline
-    ? Math.max(0, Math.ceil((session.deadline - now) / 1000))
-    : null;
+  async function endSession() {
+    onDisconnect();
+    setEnding(true);
+    await run("end-session", { bookingId: booking.id }, "Your session has ended.");
+    setEnding(false);
+  }
   const attended =
-    session?.attendance?.filter((participant) => participant.present).length ||
-    0;
+    new Set(
+      session?.attendance
+        ?.filter((participant) => participant.present)
+        .map((participant) => participant.userId),
+    ).size;
+  const frameOpen = grant && !disconnectRequested;
+  const connected = frameOpen && connection === "Connected";
   return (
     <section className="beta-card">
       <div className="beta-row-heading">
         <h2>Your private session</h2>
         <span className="beta-status" role="status">
-          {connection}
-          {seconds !== null
-            ? " · " +
-              Math.floor(seconds / 60) +
-              ":" +
-              String(seconds % 60).padStart(2, "0")
-            : ""}
+          {disconnectRequested ? "Disconnected" : connection}
         </span>
       </div>
+      <div className="beta-actions">
+        <button className="beta-danger" disabled={ending} onClick={endSession}>
+          {ending ? "Ending session…" : "End session"}
+        </button>
+        <button className="beta-secondary" onClick={onReport}>
+          Report a concern
+        </button>
+      </div>
       {error && <p className="beta-alert">{error}</p>}
-      {mediaError && (
+      {!disconnectRequested && mediaError && (
         <p className="beta-alert" role="alert">
           {mediaError}
         </p>
       )}
-      {!grant ? (
-        <>
-          <p>
-            Join when you are ready. Camera and microphone permissions are
-            requested by the private call provider.
-          </p>
-          <button className="beta-primary" disabled={busy} onClick={joinRoom}>
-            Join private {booking.format} session
-          </button>
-        </>
-      ) : (
+      {disconnectRequested ? (
+        <p>Your device is disconnected from the call.</p>
+      ) : frameOpen ? (
         <div
           ref={frameElement}
           className="beta-video-frame"
           aria-label="Private call"
         />
+      ) : (
+        <>
+          <p>
+            {booking.format === "audio"
+              ? "Joining uses your microphone. Your camera stays off."
+              : "Your browser may ask for camera and microphone access."}
+          </p>
+          <button className="beta-primary" disabled={busy} onClick={joinRoom}>
+            {connection === "Disconnected" ? "Rejoin" : "Join"} private{" "}
+            {booking.format} session
+          </button>
+        </>
+      )}
+      {session?.deadline && (
+        <p className="beta-small">
+          {session.startedAt ? "Session time remaining" : "Time to join"}{" "}
+          <RemainingTime deadline={session.deadline} />
+        </p>
       )}
       <p className="beta-small" role="status">
         {attended >= 2
           ? "Both participants have verified attendance."
           : "Waiting for server-verified participant attendance. Payment alone does not start delivered time."}
       </p>
-      <div className="beta-actions">
-        {grant && (
-          <>
+      {frameOpen && (
+        <div className="beta-actions">
+          <button
+            className="beta-secondary"
+            aria-pressed={audioOff}
+            disabled={!connected}
+            onClick={() => {
+              const next = !audioOff;
+              setAudioOff(next);
+              void call.current?.setLocalAudio(!next);
+            }}
+          >
+            {audioOff ? "Unmute microphone" : "Mute microphone"}
+          </button>
+          {booking.format === "video" && (
             <button
               className="beta-secondary"
-              aria-pressed={audioOff}
+              aria-pressed={videoOff}
+              disabled={!connected}
               onClick={() => {
-                const next = !audioOff;
-                setAudioOff(next);
-                void call.current?.setLocalAudio(!next);
+                const next = !videoOff;
+                setVideoOff(next);
+                void call.current?.setLocalVideo(!next);
               }}
             >
-              {audioOff ? "Unmute microphone" : "Mute microphone"}
+              {videoOff ? "Turn camera on" : "Turn camera off"}
             </button>
-            {booking.format === "video" && (
-              <button
-                className="beta-secondary"
-                aria-pressed={videoOff}
-                onClick={() => {
-                  const next = !videoOff;
-                  setVideoOff(next);
-                  void call.current?.setLocalVideo(!next);
-                }}
-              >
-                {videoOff ? "Turn camera on" : "Turn camera off"}
-              </button>
-            )}
-          </>
-        )}
-        <button
-          className="beta-danger"
-          disabled={busy}
-          onClick={() =>
-            run(
-              "end-session",
-              { bookingId: booking.id },
-              "Your session has ended.",
-            )
-          }
-        >
-          End session
-        </button>
-      </div>
-      <SharedActivity
-        api={api}
-        run={run}
-        busy={busy}
-        booking={booking}
-        revision={revision}
-      />
+          )}
+        </div>
+      )}
+      {booking.status === "LIVE" && !disconnectRequested && (
+        <SharedActivity
+          api={api}
+          run={run}
+          busy={busy}
+          booking={booking}
+          revision={revision}
+        />
+      )}
     </section>
   );
 }
@@ -828,6 +914,8 @@ function SharedActivity({ api, run, busy, booking, revision }) {
     "activity",
     booking.id,
     revision,
+    undefined,
+    2500,
   );
   const selected = activities.find((item) => item.id === state?.activity_id);
   const rounds = selected ? activityRounds(selected) : [];
@@ -839,7 +927,6 @@ function SharedActivity({ api, run, busy, booking, revision }) {
       operation,
       ...(activityId ? { activityId } : {}),
     });
-  if (booking.status !== "LIVE") return null;
   return (
     <section className="beta-shared-activity">
       <h3>A little shared detour</h3>
@@ -865,15 +952,17 @@ function SharedActivity({ api, run, busy, booking, revision }) {
       </div>
       {selected && round && (
         <div className="beta-prompt">
-          <span className="beta-small">
-            Prompt {(state.prompt_index || 0) + 1} of {rounds.length}
-          </span>
-          <p>{round.prompt}</p>
-          {state.answer_revealed === 1 && round.answer && (
-            <p>
-              <strong>Answer</strong> · {round.answer}
-            </p>
-          )}
+          <div aria-live="polite">
+            <span className="beta-small">
+              Prompt {(state.prompt_index || 0) + 1} of {rounds.length}
+            </span>
+            <p>{round.prompt}</p>
+            {state.answer_revealed === 1 && round.answer && (
+              <p>
+                <strong>Answer</strong> · {round.answer}
+              </p>
+            )}
+          </div>
           <div className="beta-actions">
             {round.answer && !state.answer_revealed && (
               <button

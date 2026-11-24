@@ -381,6 +381,47 @@
   font-size: 14px;
   padding: 0 6px;
 }
+.beta-shell .beta-style-picker {
+  border: 0;
+  padding: 0;
+}
+.beta-style-picker legend {
+  font-weight: 600;
+  margin-bottom: 10px;
+  padding: 0;
+}
+.beta-style-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.beta-style-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  text-align: left;
+  color: #303b32;
+  background: #fffdf8;
+  border: 1px solid #b9bcae;
+  border-radius: 10px;
+}
+.beta-style-choice span {
+  font-size: 12px;
+  line-height: 1.45;
+}
+.beta-style-surprise {
+  background: #e8ebd7;
+}
+.beta-style-choice[aria-pressed="true"] {
+  border-color: #40553c;
+  box-shadow: inset 0 0 0 1px #40553c;
+}
+.beta-style-result:not(:empty) {
+  margin-top: 10px;
+}
 .beta-shell .beta-checkbox {
   display: flex;
   flex-direction: row;
@@ -643,6 +684,9 @@
   .beta-form-grid {
     grid-template-columns: 1fr;
     gap: 0;
+  }
+  .beta-style-options {
+    grid-template-columns: 1fr;
   }
   .beta-booking-row,
   .beta-row-heading,

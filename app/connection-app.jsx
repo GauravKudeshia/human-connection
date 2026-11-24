@@ -462,6 +462,7 @@ export default function ConnectionApp({ request = fetch } = {}) {
             {view === "moment" && (
               <MomentFinder
                 preferences={preferences}
+                history={s?.closed ? [] : s?.bookings}
                 onChange={(value) => {
                   setPreferences(value);
                   setMatchError("");

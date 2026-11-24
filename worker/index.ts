@@ -26,59 +26,72 @@ const worker = {
       config.MARKETPLACE_DB
     ) {
       const db = config.MARKETPLACE_DB;
-      const videoProvider =
-        config.DAILY_ALLOW_TEST_ROOMS === "true" &&
-        typeof config.DAILY_API_KEY === "string"
-          ? createDailyTestProvider({
-              apiKey: config.DAILY_API_KEY,
-              allowTestRooms: true,
-            })
-          : undefined;
-      await createSessionService(db, { videoProvider }).expire();
-      await createMarketplace(db).expire();
+      const failures: string[] = [];
+      async function runTask(name: string, run: () => Promise<unknown>) {
+        try {
+          await run();
+        } catch {
+          failures.push(name);
+        }
+      }
+      const operations = createOperations(db);
+      await runTask("alert refresh", () => operations.refreshAlerts());
+      if (config.NOTIFICATION_MODE === "sandbox")
+        await runTask("notification delivery", () =>
+          createOperations(db, {
+            notificationProvider: createNotificationWebhook({
+              mode: "sandbox",
+              url:
+                typeof config.NOTIFICATION_DELIVERY_URL === "string"
+                  ? config.NOTIFICATION_DELIVERY_URL
+                  : undefined,
+              secret:
+                typeof config.NOTIFICATION_DELIVERY_SECRET === "string"
+                  ? config.NOTIFICATION_DELIVERY_SECRET
+                  : undefined,
+            }),
+          }).dispatch({ limit: 20 }),
+        );
+      await runTask("session and claim expiry", async () => {
+        const videoProvider =
+          config.DAILY_ALLOW_TEST_ROOMS === "true" &&
+          typeof config.DAILY_API_KEY === "string"
+            ? createDailyTestProvider({
+                apiKey: config.DAILY_API_KEY,
+                allowTestRooms: true,
+              })
+            : undefined;
+        await createSessionService(db, { videoProvider }).expire();
+        await createMarketplace(db).expire();
+      });
       if (
         typeof config.STRIPE_SANDBOX_SECRET_KEY === "string" &&
         config.STRIPE_SANDBOX_SECRET_KEY.startsWith("sk_test_")
-      )
-        await createPaymentService(db, {
-          provider: createStripeSandbox({
-            secretKey: config.STRIPE_SANDBOX_SECRET_KEY,
-          }),
-        }).retryPending();
-      const operations = createOperations(db, {
-        notificationProvider:
-          config.NOTIFICATION_MODE === "sandbox"
-            ? createNotificationWebhook({
-                mode: "sandbox",
-                url:
-                  typeof config.NOTIFICATION_DELIVERY_URL === "string"
-                    ? config.NOTIFICATION_DELIVERY_URL
-                    : undefined,
-                secret:
-                  typeof config.NOTIFICATION_DELIVERY_SECRET === "string"
-                    ? config.NOTIFICATION_DELIVERY_SECRET
-                    : undefined,
-              })
-            : undefined,
-      });
-      await operations.refreshAlerts();
-      await operations.pruneAnalytics();
+      ) {
+        const secretKey = config.STRIPE_SANDBOX_SECRET_KEY;
+        await runTask("payment reconciliation", () =>
+          createPaymentService(db, {
+            provider: createStripeSandbox({ secretKey }),
+          }).retryPending(),
+        );
+      }
+      await runTask("analytics retention", () => operations.pruneAnalytics());
       const privacy = createPrivacy(db, {
         bucket: config.MARKETPLACE_MEDIA,
         policy: privacyPolicyFromConfig(config),
       });
-      await privacy.run({ limit: 10 });
-      await privacy.sweepExpired();
-      await (db as D1Database)
-        .prepare("DELETE FROM mp_request_limits WHERE window<?")
-        .bind(Math.floor(Date.now() / 60000) - 2)
-        .run();
-      await (db as D1Database)
-        .prepare("DELETE FROM mp_rate_limits WHERE window<?")
-        .bind(Math.floor(Date.now() / 60000) - 2)
-        .run();
-      if (config.NOTIFICATION_MODE === "sandbox")
-        await operations.dispatch({ limit: 20 });
+      await runTask("privacy requests", () => privacy.run({ limit: 10 }));
+      await runTask("privacy retention", () => privacy.sweepExpired());
+      await runTask("request quota pruning", () => {
+        const cutoff = Math.floor(Date.now() / 60000) - 2;
+        const database = db as D1Database;
+        return database.batch([
+          database.prepare("DELETE FROM mp_request_limits WHERE window<?").bind(cutoff),
+          database.prepare("DELETE FROM mp_rate_limits WHERE window<?").bind(cutoff),
+        ]);
+      });
+      if (failures.length)
+        throw new Error("Marketplace scheduled task failed: " + failures.join(", "));
     }
   },
   fetch(

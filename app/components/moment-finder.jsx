@@ -1,13 +1,18 @@
 "use client";
-import React, { useRef, useEffect } from "react";
-import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
+import React, { useRef, useEffect, useState } from "react";
+import { ArrowLeft, ArrowRight, Check, Sparkles } from "lucide-react";
 import { stylesFor, styleName, money } from "../../lib/catalog.mjs";
 import { priceFor } from "../../lib/demo-policy.mjs";
+import {
+  recommendStyle,
+  styleRecommendationMessages,
+} from "../../lib/style-recommendation.mjs";
 import ExperienceBoard from "./experience-board";
 import { SessionOptions } from "./booking-options";
 import { expName } from "./shared";
 export default function MomentFinder({
   preferences,
+  history = [],
   onChange,
   step,
   setStep,
@@ -20,6 +25,35 @@ export default function MomentFinder({
   error,
 }) {
   const heading = useRef(null);
+  const [suggestion, setSuggestion] = useState(null);
+  const styles = stylesFor(preferences.experience);
+  const style = styles.find((item) => item.id === preferences.style);
+  const currentSuggestion =
+    suggestion?.experience === preferences.experience ? suggestion : null;
+  const surpriseSelected = Boolean(
+    style && currentSuggestion?.style === style.id,
+  );
+
+  function surpriseMe() {
+    const result = recommendStyle(
+      preferences.experience,
+      history.map((booking) => ({
+        experience: booking.experience,
+        style: booking.style,
+        status: booking.status,
+        rating: booking.rating,
+        worthIt:
+          booking.valueFeedback?.answer === "yes"
+            ? true
+            : booking.valueFeedback?.answer === "no"
+              ? false
+              : null,
+      })),
+    );
+    setSuggestion({ ...result, experience: preferences.experience });
+    if (result.style) onChange({ ...preferences, style: result.style });
+  }
+
   useEffect(() => {
     heading.current?.focus();
   }, [step]);
@@ -57,7 +91,7 @@ export default function MomentFinder({
           {
             [
               "Start with an experience. You can change your mind.",
-              "Choose a conversation style, or leave room for a surprise.",
+              "Pick a conversation style or let us suggest one.",
               "Set your preferences. We’ll find a fictional host who fits.",
             ][step]
           }
@@ -67,6 +101,7 @@ export default function MomentFinder({
         <ExperienceBoard
           selected={preferences.experience}
           onChoose={(experience) => {
+            setSuggestion(null);
             onChange({ ...preferences, experience, style: null });
             setStep(1);
           }}
@@ -77,34 +112,63 @@ export default function MomentFinder({
           <p className="selected-experience">
             {expName(preferences.experience)}
           </p>
-          <div className="style-grid">
-            {stylesFor(preferences.experience).map((s, i) => (
-              <button
-                key={s.id}
-                className={`style-card ${preferences.style === s.id ? "chosen" : ""}`}
-                aria-pressed={preferences.style === s.id}
-                onClick={() => onChange({ ...preferences, style: s.id })}
-              >
-                <span className="style-number">0{i + 1}</span>
-                <h2>{s.name}</h2>
-                <p>{s.note}</p>
-                {preferences.style === s.id && (
-                  <span className="selection-word">Selected</span>
-                )}
-              </button>
-            ))}
+          <div className="style-grid" role="group" aria-label="Conversation style">
+            {styles.map((item) => {
+              const selected = !surpriseSelected && style?.id === item.id;
+              return (
+                <button
+                  key={item.id}
+                  className={`style-card ${selected ? "chosen" : ""}`}
+                  aria-pressed={selected}
+                  onClick={() => {
+                    setSuggestion(null);
+                    onChange({ ...preferences, style: item.id });
+                  }}
+                >
+                  <strong>{item.name}</strong>
+                  <span>{item.note}</span>
+                  {selected && (
+                    <Check
+                      className="style-choice-check"
+                      size={16}
+                      aria-hidden="true"
+                    />
+                  )}
+                </button>
+              );
+            })}
+            <button
+              className={`style-card surprise-card ${surpriseSelected ? "chosen" : ""}`}
+              aria-pressed={surpriseSelected}
+              onClick={surpriseMe}
+            >
+              <strong>
+                <Sparkles size={18} aria-hidden="true" /> Surprise Me
+              </strong>
+              <span>Suggest a style using past sessions in this demo.</span>
+              {surpriseSelected && (
+                <Check
+                  className="style-choice-check"
+                  size={16}
+                  aria-hidden="true"
+                />
+              )}
+            </button>
+          </div>
+          <div role="status">
+            {(surpriseSelected || currentSuggestion?.reason === "no-fit") && (
+              <p className="style-suggestion">
+                {surpriseSelected && <strong>{style.name}</strong>}{" "}
+                {styleRecommendationMessages[currentSuggestion.reason]}
+              </p>
+            )}
           </div>
           <div className="journey-actions">
             <button
-              className="text-btn"
-              onClick={() => {
-                onChange({ ...preferences, style: null });
-                setStep(2);
-              }}
+              className="primary"
+              disabled={!style}
+              onClick={() => setStep(2)}
             >
-              Skip · let it flow
-            </button>
-            <button className="primary" onClick={() => setStep(2)}>
               Choose my time <ArrowRight size={17} />
             </button>
           </div>

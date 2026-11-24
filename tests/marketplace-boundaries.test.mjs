@@ -99,6 +99,88 @@ test("router quota, JSON validation, same-origin policy and logs preserve privat
     429,
   );
 });
+test("style recommendations read only the signed-in guest’s completed sessions for the chosen experience", async (t) => {
+  const f = await marketplaceFixture();
+  t.after(() => f.db.close());
+  async function sample(customer, experience, style, status = "COMPLETED") {
+    const id = crypto.randomUUID();
+    const now = f.clock();
+    await f.db.batch([
+      f.db
+        .prepare(
+          `INSERT INTO mp_bookings(id,customer_id,host_id,request_key,fingerprint,experience,duration,format,language,quote,amount_cents,currency,status,expires_at,created_at,updated_at)
+           VALUES(?,?,?,?,'test',?,15,'video','English',?,1000,'USD',?,?,?,?)`,
+        )
+        .bind(
+          id,
+          customer.id,
+          f.hosts[0].id,
+          id,
+          experience,
+          JSON.stringify({ style }),
+          status,
+          now,
+          now,
+          now,
+        ),
+      f.db
+        .prepare("INSERT INTO mp_reviews VALUES(?,?,5,1,?,?)")
+        .bind(id, customer.id, "Private note must never be returned", now),
+    ]);
+  }
+  await sample(f.customer, "laugh", "playful-banter");
+  await sample(f.customer, "laugh", "funny-stories", "PARTIAL_DELIVERY");
+  await sample(f.customer, "hear", "just-listen");
+  await sample(f.other, "laugh", "improv-games");
+
+  const recommendFor = (actor) => {
+    const handle = createMarketplaceHttp({
+      contextFor: async () => ({
+        db: f.db,
+        service: f.service,
+        actor,
+        config: {},
+        clock: f.clock,
+      }),
+      logger: () => {},
+      clock: f.clock,
+    });
+    return (experience) =>
+      handle(
+        new Request(
+          origin +
+            "/api/marketplace?resource=style-recommendation&" +
+            new URLSearchParams({ experience, customerId: f.other.id }),
+        ),
+      );
+  };
+  const guest = recommendFor(f.customer);
+  const result = await guest("laugh");
+  assert.equal(result.headers.get("cache-control"), "no-store");
+  assert.deepEqual((await result.json()).data, {
+    style: "playful-banter",
+    reason: "liked",
+  });
+  assert.deepEqual((await (await guest("hear")).json()).data, {
+    style: "just-listen",
+    reason: "liked",
+  });
+  assert.equal(
+    (await (await recommendFor(f.reviewer)("laugh")).json()).data.reason,
+    "starter",
+  );
+  assert.equal((await guest("constructor")).status, 400);
+
+  await f.db
+    .prepare("DELETE FROM mp_customer_eligibility WHERE user_id=?")
+    .bind(f.customer.id)
+    .run();
+  assert.equal((await (await guest("laugh")).json()).data.reason, "starter");
+  assert.equal(
+    (await f.db.prepare("SELECT COUNT(*) AS total FROM mp_bookings").first()).total,
+    4,
+  );
+});
 test("account suspension is scoped, audited, releases reservations and requires independent staff rights", async (t) => {
   const f = await marketplaceFixture();
   t.after(() => f.db.close());
@@ -192,6 +274,64 @@ test("safety staff may suspend only a reported account assigned to their open ca
       }),
     (e) => e.status === 403,
   );
+});
+test("the paginated staff safety queue keeps working cases out of closed history", async (t) => {
+  const f = await marketplaceFixture();
+  t.after(() => f.db.close());
+  const insert = f.db.sqlite.prepare(
+    `INSERT INTO mp_safety_reports(id,reporter_id,reported_id,category,severity,narrative,
+      status,created_at,updated_at,request_key,fingerprint)
+      VALUES(?,?,?,'conduct',?,'Fictional test report',?,?,?,?,?)`,
+  );
+  function add(id, severity, status, time) {
+    insert.run(
+      id,
+      f.customer.id,
+      f.hosts[0].id,
+      severity,
+      status,
+      time,
+      time,
+      id,
+      id,
+    );
+  }
+  for (let i = 0; i < 101; i++) {
+    add(`closed-${i}`, "URGENT", "CLOSED", i);
+    add(`assigned-${i}`, "STANDARD", "ASSIGNED", 200 + i);
+  }
+  add("new-urgent", "URGENT", "OPEN", 400);
+  add("escalated", "STANDARD", "ESCALATED", 401);
+
+  let actor = f.admin;
+  const handle = createMarketplaceHttp({
+    contextFor: async () => ({
+      db: f.db,
+      service: f.service,
+      actor,
+      config: {},
+      clock: f.clock,
+    }),
+    logger: () => {},
+    clock: f.clock,
+  });
+  const read = (resource, page) =>
+    handle(
+      new Request(origin + `/api/marketplace?resource=${resource}&page=${page}`),
+    );
+  const response = await read("safety", 0);
+  assert.equal(response.status, 200);
+  const active = (await response.json()).data;
+  assert.equal(active.length, 100);
+  assert.equal(active[0].id, "new-urgent");
+  assert(active.every((row) => row.status !== "CLOSED"));
+  const next = (await (await read("safety", 1)).json()).data.map((row) => row.id);
+  assert.deepEqual(next, ["assigned-99", "assigned-100", "escalated"]);
+  const history = (await (await read("safety-history", 1)).json()).data;
+  assert.deepEqual(history.map((row) => row.id), ["closed-0"]);
+  assert.equal((await read("safety", -1)).status, 400);
+  actor = f.customer;
+  assert.equal((await read("safety-history", 0)).status, 403);
 });
 test("an in-flight draft cannot resurrect private data after account closure", async (t) => {
   const f = await marketplaceFixture();

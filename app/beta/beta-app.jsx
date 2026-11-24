@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { experiences, stylesFor } from "../../lib/catalog.mjs";
+import { styleRecommendationMessages } from "../../lib/style-recommendation.mjs";
 import { createBetaApi, human, money } from "./beta-api.mjs";
 import { HostWorkspace, OperationsWorkspace, useResource } from "./beta-panels";
 import BetaSession from "./beta-session";
@@ -16,34 +17,51 @@ const defaults = {
   language: "English",
 };
 const staffRoles = ["admin", "host_reviewer", "safety", "finance"];
+const independentActions = new Set(["end-session", "report", "block"]);
+const activeBookings = new Set(["REQUESTED", "ACCEPTED", "READY", "LIVE"]);
+
+function storeBookingInUrl(bookingId) {
+  const url = new URL(location.href);
+  if (bookingId) url.searchParams.set("booking", bookingId);
+  else url.searchParams.delete("booking");
+  history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+}
+
 export default function BetaApp({ request = fetch } = {}) {
   const [session, setSession] = useState(null);
   const [me, setMe] = useState(null);
   const [view, setView] = useState("choose");
   const [preferences, setPreferences] = useState(defaults);
   const [selected, setSelected] = useState(null);
-  const [hosts, setHosts] = useState(null);
+  const [preferredHost, setPreferredHost] = useState(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   const [measureVisit, setMeasureVisit] = useState(false);
   const lock = useRef(false);
+  const independent = useRef(new Set());
+  const identityRequests = useRef(0);
   const main = useRef(null);
   function clearIdentity() {
     setSession({ authenticated: false, configured: true });
     setMe(null);
     setSelected(null);
-    setHosts(null);
+    storeBookingInUrl(null);
+    setPreferredHost(null);
     setView("choose");
     setNotice("");
   }
   const [api] = useState(() => createBetaApi(request, clearIdentity));
   const refresh = useCallback(async () => {
+    const version = ++identityRequests.current;
     const identity = await api.read("me");
-    setMe(identity);
-    setRevision((value) => value + 1);
+    if (version === identityRequests.current) setMe(identity);
   }, [api]);
+  const openBooking = useCallback((booking) => {
+    setSelected(booking);
+    storeBookingInUrl(booking?.id);
+  }, []);
   useEffect(() => {
     let active = true;
     api
@@ -62,7 +80,7 @@ export default function BetaApp({ request = fetch } = {}) {
           ])
             returned.searchParams.delete(parameter);
           history.replaceState(
-            null,
+            history.state,
             "",
             returned.pathname + returned.search + returned.hash,
           );
@@ -81,30 +99,77 @@ export default function BetaApp({ request = fetch } = {}) {
     }, 10000);
     return () => clearInterval(timer);
   }, [session?.authenticated, refresh, view]);
+  const hostAvailable = me?.hostAvailable === true;
+  useEffect(() => {
+    if (!hostAvailable) return;
+    let current = true;
+    let renewing = false;
+    async function renew() {
+      if (renewing) return;
+      renewing = true;
+      try {
+        const presence = await api.act("heartbeat", {
+          available: true,
+          renew: true,
+        });
+        if (current && !presence?.available) await refresh();
+      } catch {
+        // The server's lease expires if the tab cannot renew it.
+      } finally {
+        renewing = false;
+      }
+    }
+    const timer = setInterval(renew, 15000);
+    document.addEventListener("visibilitychange", renewWhenVisible);
+    function renewWhenVisible() {
+      if (document.visibilityState === "visible") void renew();
+    }
+    return () => {
+      current = false;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", renewWhenVisible);
+    };
+  }, [api, hostAvailable, refresh]);
   useEffect(() => {
     main.current?.focus();
   }, [view, selected?.id]);
-  async function run(action, payload, message) {
-    if (lock.current) return null;
-    lock.current = true;
-    setBusy(true);
+  async function run(action, payload, message, { onError } = {}) {
+    const priority = independentActions.has(action);
+    const actionKey = action + "|" + (payload?.bookingId || "");
+    if (priority) {
+      if (independent.current.has(actionKey)) return null;
+      independent.current.add(actionKey);
+    } else {
+      if (lock.current) return null;
+      lock.current = true;
+      setBusy(true);
+    }
     setError("");
     try {
       const result = await api.act(action, payload);
       if (message) setNotice(message);
-      await refresh();
+      if (action === "heartbeat" && typeof result?.available === "boolean")
+        setMe((current) =>
+          current ? { ...current, hostAvailable: result.available } : current,
+        );
+      setRevision((value) => value + 1);
+      void refresh().catch((issue) => setError(issue.message));
       return result;
     } catch (issue) {
-      setError(issue.message);
+      if (!onError?.(issue)) setError(issue.message);
       return null;
     } finally {
-      lock.current = false;
-      setBusy(false);
+      if (priority) independent.current.delete(actionKey);
+      else {
+        lock.current = false;
+        setBusy(false);
+      }
     }
   }
   function navigate(next) {
     setView(next);
-    setSelected(null);
+    openBooking(null);
+    setPreferredHost(null);
     setError("");
     setNotice("");
   }
@@ -151,6 +216,12 @@ export default function BetaApp({ request = fetch } = {}) {
               onClick={() => navigate("saved")}
             >
               Saved hosts
+            </button>
+            <button
+              aria-current={view === "updates" ? "page" : undefined}
+              onClick={() => navigate("updates")}
+            >
+              Updates
             </button>
             <button
               aria-current={view === "account" ? "page" : undefined}
@@ -215,6 +286,15 @@ export default function BetaApp({ request = fetch } = {}) {
             {notice}
           </p>
         )}
+        {signedIn && hostAvailable && (view !== "host" || selected) && (
+          <HostRequestBanner
+            api={api}
+            revision={revision}
+            hostId={me.id}
+            openId={selected?.id}
+            onOpen={openBooking}
+          />
+        )}
         {!session || (session.authenticated && !me && !error) ? (
           <section className="beta-card" aria-busy="true">
             <h1>Opening your space…</h1>
@@ -277,15 +357,16 @@ export default function BetaApp({ request = fetch } = {}) {
           </section>
         ) : selected ? (
           <BetaSession
+            key={selected.id}
             api={api}
             run={run}
             busy={busy}
             me={me}
             bookingId={selected.id}
             revision={revision}
-            onBack={() => setSelected(null)}
+            onBack={() => openBooking(null)}
             onRepeat={repeat}
-            onOpen={setSelected}
+            onOpen={openBooking}
             publicConfig={session.publicConfig || session}
           />
         ) : (
@@ -297,11 +378,11 @@ export default function BetaApp({ request = fetch } = {}) {
                 me={me}
                 preferences={preferences}
                 onChange={setPreferences}
-                hosts={hosts}
-                setHosts={setHosts}
+                preferredHost={preferredHost}
+                onClearPreferredHost={() => setPreferredHost(null)}
                 busy={busy}
                 revision={revision}
-                onSelect={setSelected}
+                onSelect={openBooking}
                 onExperienceSelected={() => {
                   if (measureVisit)
                     void request("/api/marketplace/visitor", {
@@ -320,11 +401,18 @@ export default function BetaApp({ request = fetch } = {}) {
               <BookingHistory
                 api={api}
                 revision={revision}
-                onSelect={setSelected}
+                onSelect={openBooking}
                 onRepeat={repeat}
               />
             )}
             {view === "account" && <PrivacyAccount api={api} />}
+            {view === "updates" && (
+              <PersonalUpdates
+                api={api}
+                revision={revision}
+                onOpen={openBooking}
+              />
+            )}
             {view === "saved" && (
               <SavedHosts
                 api={api}
@@ -332,8 +420,8 @@ export default function BetaApp({ request = fetch } = {}) {
                 run={run}
                 busy={busy}
                 onChoose={(host) => {
-                  setHosts([host]);
                   navigate("choose");
+                  setPreferredHost(host);
                 }}
               />
             )}
@@ -344,7 +432,7 @@ export default function BetaApp({ request = fetch } = {}) {
                 busy={busy}
                 revision={revision}
                 me={me}
-                onSelect={setSelected}
+                onSelect={openBooking}
               />
             )}
             {view === "operations" && (
@@ -379,8 +467,8 @@ function CustomerChoice({
   me,
   preferences,
   onChange,
-  hosts,
-  setHosts,
+  preferredHost,
+  onClearPreferredHost,
   busy,
   revision,
   onSelect,
@@ -393,37 +481,111 @@ function CustomerChoice({
     revision,
   );
   const [consent, setConsent] = useState(false);
+  const [hosts, setHosts] = useState(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [noMatch, setNoMatch] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestion, setSuggestion] = useState(null);
+  const [suggestionNotice, setSuggestionNotice] = useState("");
   const choicesRef = useRef(null);
+  const searchVersion = useRef(0);
+  const suggestionVersion = useRef(0);
+  const styles = stylesFor(preferences.experience);
+  const selectedStyle = styles.find(({ id }) => id === preferences.style);
   const eligible = me.eligible === true || eligibility?.eligible === true;
-  const change = (next) => {
-    onChange(next);
+  useEffect(
+    () => () => {
+      suggestionVersion.current++;
+    },
+    [],
+  );
+  function resetSearch() {
+    searchVersion.current++;
+    setSearching(false);
     setHosts(null);
     setNoMatch(false);
-  };
+    setSearchError("");
+  }
+  function change(next) {
+    onChange(next);
+    resetSearch();
+  }
+  function clearSuggestion() {
+    suggestionVersion.current++;
+    setSuggesting(false);
+    setSuggestion(null);
+    setSuggestionNotice("");
+  }
+  async function suggestStyle() {
+    const version = ++suggestionVersion.current;
+    const { experience } = preferences;
+    setSuggesting(true);
+    setSuggestionNotice("Finding a style…");
+    resetSearch();
+    try {
+      const pick = await api.read("style-recommendation", null, { experience });
+      if (version !== suggestionVersion.current) return;
+      const style = styles.find(({ id }) => id === pick?.style);
+      if (!style) {
+        setSuggestionNotice(styleRecommendationMessages["no-fit"]);
+        return;
+      }
+      onChange((current) => ({ ...current, style: style.id }));
+      setSuggestion(style.id);
+      setSuggestionNotice(
+        [`Try ${style.name}.`, styleRecommendationMessages[pick.reason]]
+          .filter(Boolean)
+          .join(" "),
+      );
+    } catch {
+      if (version === suggestionVersion.current)
+        setSuggestionNotice(
+          "Surprise Me is unavailable. Try again or choose a style.",
+        );
+    } finally {
+      if (version === suggestionVersion.current) setSuggesting(false);
+    }
+  }
   async function findHosts() {
+    const version = ++searchVersion.current;
     setSearching(true);
     setSearchError("");
+    setNoMatch(false);
+    setHosts(null);
     try {
       const result = await api.read("hosts", null, {
         ...preferences,
         style: preferences.style || "",
+        ...(preferredHost ? { hostId: preferredHost.user_id } : {}),
       });
-      setHosts(result);
-      setNoMatch(!result.length);
+      if (version !== searchVersion.current) return;
+      const matches = preferredHost
+        ? result.filter((host) => host.user_id === preferredHost.user_id)
+        : result;
+      setHosts(matches);
+      setNoMatch(!matches.length);
     } catch (issue) {
-      setSearchError(issue.message);
+      if (version === searchVersion.current) setSearchError(issue.message);
     } finally {
-      setSearching(false);
+      if (version === searchVersion.current) setSearching(false);
     }
   }
   async function reserve(hostId) {
-    const result = await run("reserve", {
-      ...preferences,
-      ...(hostId ? { hostId } : {}),
-    });
+    resetSearch();
+    const version = searchVersion.current;
+    const result = await run(
+      "reserve",
+      { ...preferences, ...(hostId ? { hostId } : {}) },
+      undefined,
+      {
+        onError(issue) {
+          if (issue.code !== "NO_MATCH") return false;
+          if (version === searchVersion.current) setNoMatch(true);
+          return true;
+        },
+      },
+    );
     if (result?.booking) onSelect(result.booking);
   }
   return (
@@ -445,6 +607,7 @@ function CustomerChoice({
             aria-pressed={preferences.experience === experience.id}
             key={experience.id}
             onClick={() => {
+              clearSuggestion();
               change({
                 ...preferences,
                 experience: experience.id,
@@ -479,22 +642,58 @@ function CustomerChoice({
           onSubmit={(event) => event.preventDefault()}
         >
           <h2>Make it your kind of time.</h2>
-          <label>
-            Conversation style
-            <select
-              value={preferences.style || ""}
-              onChange={(event) =>
-                change({ ...preferences, style: event.target.value || null })
-              }
-            >
-              <option value="">Let it flow</option>
-              {stylesFor(preferences.experience).map((style) => (
-                <option key={style.id} value={style.id}>
-                  {style.name}
-                </option>
+          {preferredHost && (
+            <div className="beta-notice">
+              Looking for {preferredHost.display_name}
+              <button
+                type="button"
+                className="beta-text"
+                onClick={() => {
+                  onClearPreferredHost();
+                  resetSearch();
+                }}
+              >
+                Search all hosts
+              </button>
+            </div>
+          )}
+          <fieldset className="beta-style-picker">
+            <legend>Conversation style</legend>
+            <div className="beta-style-options">
+              {styles.map((style) => (
+                <button
+                  className="beta-style-choice"
+                  type="button"
+                  key={style.id}
+                  aria-pressed={selectedStyle?.id === style.id && !suggestion}
+                  onClick={() => {
+                    clearSuggestion();
+                    change({ ...preferences, style: style.id });
+                  }}
+                >
+                  <strong>{style.name}</strong>
+                  <span>{style.note}</span>
+                </button>
               ))}
-            </select>
-          </label>
+              <button
+                className="beta-style-choice beta-style-surprise"
+                type="button"
+                aria-pressed={Boolean(suggestion)}
+                aria-label="Surprise Me"
+                aria-describedby="beta-style-surprise-note"
+                disabled={suggesting}
+                onClick={suggestStyle}
+              >
+                <strong>Surprise Me</strong>
+                <span id="beta-style-surprise-note">
+                  Suggest a style from your past completed sessions and feedback.
+                </span>
+              </button>
+            </div>
+            <p className="beta-style-result beta-small" role="status">
+              {suggestionNotice}
+            </p>
+          </fieldset>
           <div className="beta-form-grid">
             <label>
               Time
@@ -524,7 +723,7 @@ function CustomerChoice({
               </select>
             </label>
             <label>
-              Language
+              Conversation language
               <select
                 value={preferences.language}
                 onChange={(event) =>
@@ -537,8 +736,8 @@ function CustomerChoice({
             </label>
           </div>
           <p className="beta-small">
-            Beta prices start at $10 for 15 minutes and $18 for 30 minutes. Your
-            accepted quote confirms the total before checkout.
+            Conversation language matches you with a host. The beta interface
+            and shared prompts are in English.
           </p>
         </form>
         <div className="beta-card beta-choice-summary">
@@ -552,6 +751,9 @@ function CustomerChoice({
           <p>
             {preferences.duration} minutes · {human(preferences.format)} ·{" "}
             {preferences.language}
+          </p>
+          <p className="beta-small">
+            {selectedStyle?.name ?? "Choose a conversation style to continue."}
           </p>
           {!eligible && (
             <div className="beta-eligibility">
@@ -592,21 +794,32 @@ function CustomerChoice({
           )}
           <button
             className="beta-primary"
-            disabled={busy || !eligible}
-            onClick={() => reserve()}
+            disabled={
+              searching || suggesting || busy || !eligible || !selectedStyle
+            }
+            onClick={preferredHost ? findHosts : () => reserve()}
           >
-            Match me now
+            {preferredHost
+              ? searching
+                ? "Checking availability…"
+                : "Check saved host availability"
+              : "Match me now"}
           </button>
-          <button
-            className="beta-secondary"
-            disabled={searching || busy || !eligible}
-            onClick={findHosts}
-          >
-            {searching ? "Checking availability…" : "I’ll choose a host"}
-          </button>
+          {!preferredHost && (
+            <button
+              className="beta-secondary"
+              disabled={
+                searching || suggesting || busy || !eligible || !selectedStyle
+              }
+              onClick={findHosts}
+            >
+              {searching ? "Checking availability…" : "I’ll choose a host"}
+            </button>
+          )}
           <p className="beta-small">
-            Searching and host declines create no charge. Availability is
-            checked again when a request is reserved.
+            Test prices start at $10 for 15 minutes and $18 for 30 minutes. You’ll
+            see the total after a host accepts. Searching and declines create
+            no charge.
           </p>
         </div>
       </div>
@@ -619,13 +832,13 @@ function CustomerChoice({
         <div className="beta-card" role="status">
           <h2>No host fits just now.</h2>
           <p>
-            Try a different style, format or experience. Your language remains
-            selected.
+            {preferredHost
+              ? `${preferredHost.display_name} is unavailable for these choices. You can search all hosts or check again later.`
+              : "Keep your choices and check again later, or try a different format, language or experience."}
           </p>
           <button
             className="beta-secondary"
             onClick={() => {
-              change({ ...preferences, style: null });
               choicesRef.current?.focus();
               choicesRef.current?.scrollIntoView({
                 block: "center",
@@ -779,7 +992,9 @@ function BookingHistory({ api, revision, onSelect, onRepeat }) {
                 className="beta-primary"
                 onClick={() => onSelect(booking)}
               >
-                Session details
+                {activeBookings.has(booking.status)
+                  ? "Resume session"
+                  : "Session details"}
               </button>
               {[
                 "COMPLETED",
@@ -804,6 +1019,119 @@ function BookingHistory({ api, revision, onSelect, onRepeat }) {
     </section>
   );
 }
+
+function HostRequestBanner({ api, revision, hostId, openId, onOpen }) {
+  const { data } = useResource(api, "bookings", null, revision, undefined, 4000);
+  const request = data?.find(
+    (entry) => entry.status === "REQUESTED" && entry.host_id === hostId,
+  );
+  if (!request || request.id === openId) return null;
+  return (
+    <div className="beta-service-note">
+      <span role="status">You have a new session request.</span>{" "}
+      <button className="beta-text" onClick={() => onOpen(request)}>
+        View request
+      </button>
+    </div>
+  );
+}
+
+const updateLabels = {
+  host_request: "New session request",
+  accept: "Session request accepted",
+  decline: "Session request declined",
+  cancel: "Session cancelled",
+  booking_expired: "Session request or quote expired",
+  session_ready: "Ready to join",
+  payment_confirmed: "Test payment confirmed",
+  refund_approved: "Refund approved",
+  refund_declined: "Refund request declined",
+  refund_confirmed: "Test refund confirmed",
+  tip_refund_confirmed: "Test tip refund confirmed",
+  host_verification: "Host verification updated",
+  operations_alert: "Staff alert",
+};
+
+function PersonalUpdates({ api, revision, onOpen }) {
+  const notifications = useResource(api, "notifications", null, revision);
+  const reports = useResource(api, "my-reports", null, revision);
+  const appeals = useResource(api, "my-appeals", null, revision);
+  return (
+    <section>
+      <h1>Your updates</h1>
+      <UpdateList
+        title="Booking and account"
+        resource={notifications}
+        empty="New booking and account updates will appear here."
+      >
+        {(item) => (
+          <>
+            <strong>{updateLabels[item.kind] || human(item.kind)}</strong>
+            {item.booking_id && (
+              <button
+                className="beta-text"
+                onClick={() => onOpen({ id: item.booking_id })}
+              >
+                View session
+              </button>
+            )}
+          </>
+        )}
+      </UpdateList>
+      <UpdateList
+        title="Safety reports"
+        resource={reports}
+        empty="You have no submitted safety reports."
+      >
+        {(item) => (
+          <>
+            <strong>{human(item.category)}</strong>
+            <span className="beta-status">{human(item.status)}</span>
+          </>
+        )}
+      </UpdateList>
+      {(appeals.data?.length > 0 || appeals.error) && (
+        <UpdateList title="Host appeals" resource={appeals}>
+          {(item) => (
+            <>
+              <span className="beta-status">{human(item.status)}</span>
+              <p>{item.reason}</p>
+              {item.resolution && <p>{item.resolution}</p>}
+            </>
+          )}
+        </UpdateList>
+      )}
+    </section>
+  );
+}
+
+function UpdateList({ title, resource, empty, children }) {
+  const { data, error, loading } = resource;
+  return (
+    <section className="beta-card">
+      <h2>{title}</h2>
+      {error && <p className="beta-alert" role="alert">{error}</p>}
+      {loading && <p>Loading updates…</p>}
+      {data?.length === 0 && <p>{empty}</p>}
+      {data?.length > 0 && (
+        <ul className="beta-booking-list">
+          {data.map((item) => (
+            <li className="beta-booking-row" key={item.id}>
+              <div>{children(item)}</div>
+              <time
+                className="beta-small"
+                dateTime={new Date(item.created_at).toISOString()}
+              >
+                {new Date(item.created_at).toLocaleString()}
+              </time>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function SavedHosts({ api, revision, run, busy, onChoose }) {
   const { data, error } = useResource(api, "favourites", null, revision);
   return (
