@@ -128,7 +128,7 @@ test("style recommendations read only the signed-in guest’s completed sessions
         .bind(id, customer.id, "Private note must never be returned", now),
     ]);
   }
-  await sample(f.customer, "laugh", "playful-banter");
+  await sample(f.customer, "laugh", "playful-banter", "PARTIAL_DELIVERY");
   await sample(f.customer, "distract", "conversation-games", "PARTIAL_DELIVERY");
   await sample(f.customer, "hear", "just-listen");
   await sample(f.other, "distract", "trivia-questions");
@@ -172,7 +172,11 @@ test("style recommendations read only the signed-in guest’s completed sessions
     "starter",
   );
   assert.equal((await guest("constructor")).status, 400);
-  assert.equal((await guest("laugh")).status, 400);
+  assert.deepEqual((await (await guest("laugh")).json()).data, {
+    experience: "laugh",
+    style: "funny-stories",
+    reason: "starter",
+  });
 
   await f.db
     .prepare("DELETE FROM mp_customer_eligibility WHERE user_id=?")

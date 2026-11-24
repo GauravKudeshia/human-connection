@@ -1,5 +1,13 @@
 # QA and test evidence
 
+## V3 review verification
+
+The Nov. 24 baseline had 211 passing tests. The combined V3 implementation passed 232 tests in the configured engine, browser transport, V1.3, experience and marketplace suites. ESLint, TypeScript and both application builds passed. The local SQLite migration test upgraded an eight-migration database with an existing account and applied both additive migrations twice, with no integrity or foreign-key failures.
+
+New coverage includes the restored laughter booking at its original price, language eligibility and offline supply, multi-factor workspace entry and fixed callback destinations, paying-customer review ownership and moderation paging, removal of written review data on account closure, both guest consent gates, link expiry and replay, parallel claims and admissions, and participation with the original timer and price. Host application steps and guest screen states were exercised in component harnesses.
+
+The installed Node dependency tree was used. The npm executable was unavailable for a fresh `npm ci` in this environment. Chrome timed out launching, so the requested viewport and physical device walkthrough remains open. Managed sign-in, cross-device guest link behavior, provider callbacks, actual sharing-client behavior, and footage or media from live participants were outside the local test boundary.
+
 November 15, 2026 · development branch `feature/research-driven-beta-foundation`.
 
 ## Baseline and current automated checks

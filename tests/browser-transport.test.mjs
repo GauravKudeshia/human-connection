@@ -59,10 +59,39 @@ test("public preview lets a guest complete a demo checkout and tip with no backe
   });
 });
 
-test("the new booking menu offers two experiences and Surprise Me, with two styles for each experience", () => {
-  assert.deepEqual(experienceChoices.map(({ id }) => id), ["hear", "distract", "surprise"]);
+test("all three core experiences offer two direct styles before the style suggestion", () => {
+  assert.deepEqual(experienceChoices.map(({ id }) => id), ["laugh", "hear", "distract"]);
   for (const { id } of bookableExperiences) assert.equal(bookableStylesFor(id).length, 2);
-  assert.deepEqual(bookableStylesFor("laugh"), []);
+});
+
+test("Make Me Laugh completes the V3 demo booking path at its existing 30-minute price", async () => {
+  const request = makeBrowserRequest(storage(), "v3-laugh");
+  async function send(action, payload) {
+    const response = await request("/api/action", {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify({ action, payload }),
+    });
+    const body = await response.json();
+    assert.equal(response.status, 200, body.error?.message);
+    return body;
+  }
+  await send("eligibility", { adult: true, us: true, terms: true });
+  const { result } = await send("match", {
+    experience: "laugh",
+    style: "playful-banter",
+    duration: 30,
+    format: "audio",
+    language: "English",
+  });
+  const selection = { bookingId: result.bookingId };
+  await send("accept", selection);
+  await send("checkout", selection);
+  await send("join", selection);
+  const final = await send("complete-demo", selection);
+  assert.equal(final.state.bookings[0].status, "COMPLETED");
+  assert.equal(final.state.bookings[0].totalCents, 1800);
+  assert.equal(final.state.bookings[0].experience, "laugh");
 });
 
 test("a mid-session storage failure preserves the last saved workspace and requires explicit temporary recovery", async () => {

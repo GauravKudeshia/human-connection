@@ -69,24 +69,17 @@ export default function MomentFinder({
           {
             [
               "Start with an experience. You can change your mind.",
-              "Pick a conversation style or let us suggest one.",
+              "Pick a style, ask for a suggestion, or continue without one.",
               "Set your preferences. We’ll find a fictional host who fits.",
             ][step]
           }
         </p>
       </div>
       {step === 0 && (
-        <>
-          <ExperienceBoard
-            selected={preferences.experience}
-            onChoose={onChooseExperience}
-          />
-          {suggestion?.reason === "no-fit" && !suggestion.experience && (
-            <p className="style-suggestion" role="status">
-              Choose Hear Me Out or Distract Me to continue.
-            </p>
-          )}
-        </>
+        <ExperienceBoard
+          selected={preferences.experience}
+          onChoose={onChooseExperience}
+        />
       )}
       {step === 1 && (
         <>
@@ -146,7 +139,6 @@ export default function MomentFinder({
           <div className="journey-actions">
             <button
               className="primary"
-              disabled={!style}
               onClick={() => setStep(2)}
             >
               Choose my time <ArrowRight size={17} />

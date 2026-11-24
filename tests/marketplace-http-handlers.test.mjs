@@ -79,6 +79,13 @@ test("eligibility is persisted and enforced before a new reservation", async (t)
 test("completed value-only and private feedback edits preserve an independent public rating", async (t) => {
   const f = await fixture();
   t.after(() => f.db.close());
+  const now = Date.now();
+  await f.db
+    .prepare(
+      "INSERT INTO mp_payments VALUES('review-payment',?,'pi_review_fixture','CAPTURED',1000,'USD',?,?)",
+    )
+    .bind(f.bookingId, now, now)
+    .run();
   await f.service.act(
     f.customer,
     "review",

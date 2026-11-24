@@ -7,4 +7,5 @@ export const marketplaceMigrations = Object.freeze([
   "marketplace-experience.sql",
   "marketplace-analytics.sql",
   "marketplace-privacy.sql",
+  "marketplace-reviews.sql",
 ]);

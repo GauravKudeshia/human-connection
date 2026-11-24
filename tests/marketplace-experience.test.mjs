@@ -93,9 +93,16 @@ test("host quality and profiles use delivered eligible feedback only and hide pr
     .prepare("UPDATE mp_bookings SET status='COMPLETED' WHERE id=?")
     .bind(booking.id)
     .run();
+  await f.db
+    .prepare(
+      "INSERT INTO mp_payments VALUES('review-payment',?,'pi_review_fixture','CAPTURED',1000,'USD',?,?)",
+    )
+    .bind(booking.id, f.clock(), f.clock())
+    .run();
   await f.act(f.customer, "review", {
     bookingId: booking.id,
     rating: 5,
+    comfortRating: 4,
     worthIt: true,
     privateFeedback: "private test note",
   });
@@ -104,6 +111,8 @@ test("host quality and profiles use delivered eligible feedback only and hide pr
   const stats = await x.quality(f.hosts[0]);
   assert.equal(stats.delivered, 1);
   assert.equal(stats.ratings, 1);
+  assert.equal(stats.comfortRatings, 1);
+  assert.equal(stats.averageComfortRating, 4);
   assert.equal(stats.valueYes, 1);
   assert(!JSON.stringify(stats).includes("private test note"));
   assert.equal(

@@ -149,9 +149,11 @@ export default function ProfileDialog({
           <details className="demo-reviews">
             <summary>Reviews from this demo workspace</summary>
             {reviews.map((b) => (
-              <p key={b.id}>
-                {b.rating}/5{b.review ? ` — ${b.review}` : ""}
-              </p>
+              <div key={b.id}>
+                <p>Conversation Quality · {b.rating} / 5</p>
+                {b.comfortRating && <p>Comfort &amp; Respect · {b.comfortRating} / 5</p>}
+                {b.review && <p>{b.review}</p>}
+              </div>
             ))}
             <small>
               These are simulation entries, not verified customer reviews.
