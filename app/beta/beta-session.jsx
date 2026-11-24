@@ -1,7 +1,11 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import { activities, activityRounds } from "../../lib/activities.mjs";
-import { experiences } from "../../lib/catalog.mjs";
+import {
+  bookableExperiences,
+  bookableStylesFor,
+  experiences,
+} from "../../lib/catalog.mjs";
 import { human, money } from "./beta-api.mjs";
 import { useResource } from "./beta-panels";
 
@@ -49,6 +53,12 @@ export default function BetaSession({
     typeof booking?.quote === "string"
       ? JSON.parse(booking.quote)
       : booking?.quote;
+  const canRepeatExperience = bookableExperiences.some(
+    ({ id }) => id === booking?.experience,
+  );
+  const canReuseChoices =
+    canRepeatExperience &&
+    bookableStylesFor(booking.experience).some(({ id }) => id === quote?.style);
   const customer = booking?.customer_id === me.id;
   const inSession = ["READY", "LIVE"].includes(booking?.status);
   const terminal =
@@ -73,6 +83,7 @@ export default function BetaSession({
   useEffect(() => {
     if (
       !autoReplace ||
+      !canReuseChoices ||
       !customer ||
       busy ||
       !["DECLINED", "EXPIRED"].includes(booking?.status) ||
@@ -88,7 +99,16 @@ export default function BetaSession({
       if (result?.booking) onOpen(result.booking);
       else setAutoReplace(false);
     });
-  }, [autoReplace, customer, busy, booking?.status, bookingId, run, onOpen]);
+  }, [
+    autoReplace,
+    canReuseChoices,
+    customer,
+    busy,
+    booking?.status,
+    bookingId,
+    run,
+    onOpen,
+  ]);
   async function checkout() {
     const result = await run("checkout", { bookingId });
     if (result?.clientSecret) setPayment({ ...result, purpose: "base" });
@@ -147,15 +167,17 @@ export default function BetaSession({
               </p>
               {customer ? (
                 <div>
-                  <label className="beta-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={autoReplace}
-                      onChange={(event) => setAutoReplace(event.target.checked)}
-                    />
-                    If this host declines or the unpaid request expires, try
-                    another eligible host with my choices.
-                  </label>
+                  {canReuseChoices && (
+                    <label className="beta-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={autoReplace}
+                        onChange={(event) => setAutoReplace(event.target.checked)}
+                      />
+                      If this host declines or the unpaid request expires, try
+                      another eligible host with my choices.
+                    </label>
+                  )}
                   <button
                     className="beta-secondary"
                     disabled={busy}
@@ -193,24 +215,28 @@ export default function BetaSession({
           {customer && ["DECLINED", "EXPIRED"].includes(booking.status) && (
             <div className="beta-card">
               <h2>Find another good fit.</h2>
-              <p>
-                We keep your experience, style, time, language and format. A
-                replacement request starts no payment.
-              </p>
-              <button
-                className="beta-primary"
-                disabled={busy}
-                onClick={async () => {
-                  const result = await run(
-                    "replace-host",
-                    { bookingId },
-                    "Replacement requested.",
-                  );
-                  if (result?.booking) onOpen(result.booking);
-                }}
-              >
-                Try another available host
-              </button>
+              {canReuseChoices && (
+                <>
+                  <p>
+                    We keep your experience, style, time, language and format.
+                    A replacement request starts no payment.
+                  </p>
+                  <button
+                    className="beta-primary"
+                    disabled={busy}
+                    onClick={async () => {
+                      const result = await run(
+                        "replace-host",
+                        { bookingId },
+                        "Replacement requested.",
+                      );
+                      if (result?.booking) onOpen(result.booking);
+                    }}
+                  >
+                    Try another available host
+                  </button>
+                </>
+              )}
               <button className="beta-text" onClick={() => onRepeat(booking)}>
                 Adjust my choices
               </button>
@@ -332,27 +358,31 @@ export default function BetaSession({
                   className="beta-primary"
                   onClick={() => onRepeat({ ...booking, quote })}
                 >
-                  Repeat this experience
+                  {canRepeatExperience
+                    ? "Repeat this experience"
+                    : "Find a new moment"}
                 </button>
                 {customer && (
                   <>
-                    <button
-                      className="beta-secondary"
-                      disabled={busy}
-                      onClick={async () => {
-                        const result = await run("reserve", {
-                          hostId: booking.host_id,
-                          experience: booking.experience,
-                          style: quote?.style || null,
-                          duration: booking.duration,
-                          format: booking.format,
-                          language: booking.language,
-                        });
-                        if (result?.booking) onOpen(result.booking);
-                      }}
-                    >
-                      Request this host again
-                    </button>
+                    {canReuseChoices && (
+                      <button
+                        className="beta-secondary"
+                        disabled={busy}
+                        onClick={async () => {
+                          const result = await run("reserve", {
+                            hostId: booking.host_id,
+                            experience: booking.experience,
+                            style: quote.style,
+                            duration: booking.duration,
+                            format: booking.format,
+                            language: booking.language,
+                          });
+                          if (result?.booking) onOpen(result.booking);
+                        }}
+                      >
+                        Request this host again
+                      </button>
+                    )}
                     <button
                       className="beta-secondary"
                       disabled={busy}

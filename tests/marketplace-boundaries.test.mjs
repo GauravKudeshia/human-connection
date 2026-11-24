@@ -129,9 +129,9 @@ test("style recommendations read only the signed-in guest’s completed sessions
     ]);
   }
   await sample(f.customer, "laugh", "playful-banter");
-  await sample(f.customer, "laugh", "funny-stories", "PARTIAL_DELIVERY");
+  await sample(f.customer, "distract", "conversation-games", "PARTIAL_DELIVERY");
   await sample(f.customer, "hear", "just-listen");
-  await sample(f.other, "laugh", "improv-games");
+  await sample(f.other, "distract", "trivia-questions");
 
   const recommendFor = (actor) => {
     const handle = createMarketplaceHttp({
@@ -155,27 +155,30 @@ test("style recommendations read only the signed-in guest’s completed sessions
       );
   };
   const guest = recommendFor(f.customer);
-  const result = await guest("laugh");
+  const result = await guest("surprise");
   assert.equal(result.headers.get("cache-control"), "no-store");
   assert.deepEqual((await result.json()).data, {
-    style: "playful-banter",
+    experience: "hear",
+    style: "just-listen",
     reason: "liked",
   });
   assert.deepEqual((await (await guest("hear")).json()).data, {
+    experience: "hear",
     style: "just-listen",
     reason: "liked",
   });
   assert.equal(
-    (await (await recommendFor(f.reviewer)("laugh")).json()).data.reason,
+    (await (await recommendFor(f.reviewer)("surprise")).json()).data.reason,
     "starter",
   );
   assert.equal((await guest("constructor")).status, 400);
+  assert.equal((await guest("laugh")).status, 400);
 
   await f.db
     .prepare("DELETE FROM mp_customer_eligibility WHERE user_id=?")
     .bind(f.customer.id)
     .run();
-  assert.equal((await (await guest("laugh")).json()).data.reason, "starter");
+  assert.equal((await (await guest("surprise")).json()).data.reason, "starter");
   assert.equal(
     (await f.db.prepare("SELECT COUNT(*) AS total FROM mp_bookings").first()).total,
     4,

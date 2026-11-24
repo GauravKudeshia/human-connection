@@ -2,7 +2,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { experiences, stylesFor } from "../../lib/catalog.mjs";
+import {
+  bookableExperiences,
+  bookableStylesFor,
+  experienceChoices,
+  experiences,
+} from "../../lib/catalog.mjs";
 import { styleRecommendationMessages } from "../../lib/style-recommendation.mjs";
 import { createBetaApi, human, money } from "./beta-api.mjs";
 import { HostWorkspace, OperationsWorkspace, useResource } from "./beta-panels";
@@ -10,7 +15,7 @@ import BetaSession from "./beta-session";
 import { ClosureReceipt, PrivacyAccount, VisitConsent } from "./beta-additions";
 
 const defaults = {
-  experience: "laugh",
+  experience: null,
   style: null,
   duration: 15,
   format: "video",
@@ -174,9 +179,17 @@ export default function BetaApp({ request = fetch } = {}) {
     setNotice("");
   }
   function repeat(booking) {
+    const experience = bookableExperiences.find(
+      ({ id }) => id === booking.experience,
+    );
+    const style =
+      experience &&
+      bookableStylesFor(experience.id).find(
+        ({ id }) => id === booking.quote?.style,
+      );
     setPreferences({
-      experience: booking.experience,
-      style: booking.quote?.style || null,
+      experience: experience?.id ?? null,
+      style: style?.id ?? null,
       duration: booking.duration,
       format: booking.format,
       language: booking.language,
@@ -310,8 +323,8 @@ export default function BetaApp({ request = fetch } = {}) {
                 <em>chosen by you.</em>
               </h1>
               <p>
-                Share a laugh, talk about your day, or take a playful detour
-                with a host who fits your chosen experience.
+                Talk about your day, take a playful detour, or let us suggest
+                a moment with a human host.
               </p>
               {configured ? (
                 <>
@@ -489,9 +502,13 @@ function CustomerChoice({
   const [suggestion, setSuggestion] = useState(null);
   const [suggestionNotice, setSuggestionNotice] = useState("");
   const choicesRef = useRef(null);
+  const previousExperience = useRef(preferences.experience);
   const searchVersion = useRef(0);
   const suggestionVersion = useRef(0);
-  const styles = stylesFor(preferences.experience);
+  const experience = bookableExperiences.find(
+    ({ id }) => id === preferences.experience,
+  );
+  const styles = experience ? bookableStylesFor(experience.id) : [];
   const selectedStyle = styles.find(({ id }) => id === preferences.style);
   const eligible = me.eligible === true || eligibility?.eligible === true;
   useEffect(
@@ -500,6 +517,11 @@ function CustomerChoice({
     },
     [],
   );
+  useEffect(() => {
+    if (previousExperience.current === preferences.experience) return;
+    previousExperience.current = preferences.experience;
+    choicesRef.current?.focus();
+  }, [preferences.experience]);
   function resetSearch() {
     searchVersion.current++;
     setSearching(false);
@@ -517,37 +539,78 @@ function CustomerChoice({
     setSuggestion(null);
     setSuggestionNotice("");
   }
-  async function suggestStyle() {
+  function trackExperience(experienceId) {
+    onExperienceSelected?.();
+    void api
+      .act("track", {
+        name: "experience_selected",
+        experience: experienceId,
+      })
+      .catch(() => {});
+  }
+  function selectExperience(experienceId) {
+    clearSuggestion();
+    change({ ...preferences, experience: experienceId, style: null });
+    if (experienceId) trackExperience(experienceId);
+  }
+  async function suggestStyle(requestedExperience) {
     const version = ++suggestionVersion.current;
-    const { experience } = preferences;
+    const fromChooser = requestedExperience === "surprise";
     setSuggesting(true);
-    setSuggestionNotice("Finding a style…");
+    setSuggestionNotice(fromChooser ? "Finding a moment…" : "Finding a style…");
     resetSearch();
     try {
-      const pick = await api.read("style-recommendation", null, { experience });
+      const pick = await api.read("style-recommendation", null, {
+        experience: requestedExperience,
+      });
       if (version !== suggestionVersion.current) return;
-      const style = styles.find(({ id }) => id === pick?.style);
-      if (!style) {
-        setSuggestionNotice(styleRecommendationMessages["no-fit"]);
+      const pickedExperience = bookableExperiences.find(
+        ({ id }) => id === pick?.experience,
+      );
+      const style =
+        pickedExperience &&
+        bookableStylesFor(pickedExperience.id).find(({ id }) => id === pick?.style);
+      if (
+        !style ||
+        (!fromChooser && pickedExperience.id !== requestedExperience)
+      ) {
+        setSuggestionNotice(
+          fromChooser
+            ? "Choose the experience that fits today."
+            : styleRecommendationMessages["no-fit"],
+        );
         return;
       }
-      onChange((current) => ({ ...current, style: style.id }));
+      onChange((current) => ({
+        ...current,
+        experience: pickedExperience.id,
+        style: style.id,
+      }));
       setSuggestion(style.id);
       setSuggestionNotice(
-        [`Try ${style.name}.`, styleRecommendationMessages[pick.reason]]
+        [
+          fromChooser
+            ? `Try ${pickedExperience.name} with ${style.name}.`
+            : `Try ${style.name}.`,
+          styleRecommendationMessages[pick.reason],
+        ]
           .filter(Boolean)
           .join(" "),
       );
+      if (fromChooser) trackExperience(pickedExperience.id);
     } catch {
       if (version === suggestionVersion.current)
         setSuggestionNotice(
-          "Surprise Me is unavailable. Try again or choose a style.",
+          fromChooser
+            ? "Surprise Me is unavailable. Try again or choose an experience."
+            : "Surprise Me is unavailable. Try again or choose a style.",
         );
     } finally {
       if (version === suggestionVersion.current) setSuggesting(false);
     }
   }
   async function findHosts() {
+    if (!selectedStyle || suggesting) return;
     const version = ++searchVersion.current;
     setSearching(true);
     setSearchError("");
@@ -572,6 +635,7 @@ function CustomerChoice({
     }
   }
   async function reserve(hostId) {
+    if (!selectedStyle || suggesting) return;
     resetSearch();
     const version = searchVersion.current;
     const result = await run(
@@ -588,54 +652,68 @@ function CustomerChoice({
     );
     if (result?.booking) onSelect(result.booking);
   }
+  if (!experience)
+    return (
+      <section>
+        <h1 ref={choicesRef} tabIndex={-1}>
+          What do you feel like?
+        </h1>
+        <div
+          className="beta-experience-grid"
+          role="group"
+          aria-label="Experience choices"
+        >
+          {experienceChoices.map((choice) => (
+            <button
+              className="beta-experience"
+              key={choice.id}
+              type="button"
+              disabled={choice.id === "surprise" && suggesting}
+              onClick={() =>
+                choice.id === "surprise"
+                  ? suggestStyle(choice.id)
+                  : selectExperience(choice.id)
+              }
+            >
+              <Image
+                unoptimized
+                src={
+                  "/moments/" +
+                  (choice.id === "surprise" ? "cards" : choice.id) +
+                  ".webp"
+                }
+                alt=""
+                width={640}
+                height={640}
+              />
+              <span>
+                <strong>{choice.name}</strong>
+                <small>{choice.note}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+        <p className="beta-style-result beta-small" role="status">
+          {suggestionNotice}
+        </p>
+      </section>
+    );
   return (
     <section>
-      <p className="beta-eyebrow">YOUR MOMENT, YOUR WAY</p>
-      <h1>What do you feel like?</h1>
-      <div
-        className="beta-experience-grid"
+      <h1
         ref={choicesRef}
         tabIndex={-1}
-        aria-label="Choose your experience"
+        aria-describedby={suggestionNotice ? "beta-style-recommendation" : undefined}
       >
-        {experiences.map((experience) => (
-          <button
-            className={
-              "beta-experience " +
-              (preferences.experience === experience.id ? "selected" : "")
-            }
-            aria-pressed={preferences.experience === experience.id}
-            key={experience.id}
-            onClick={() => {
-              clearSuggestion();
-              change({
-                ...preferences,
-                experience: experience.id,
-                style: null,
-              });
-              onExperienceSelected?.();
-              void api
-                .act("track", {
-                  name: "experience_selected",
-                  experience: experience.id,
-                })
-                .catch(() => {});
-            }}
-          >
-            <Image
-              unoptimized
-              src={"/moments/" + experience.id + ".webp"}
-              alt=""
-              width={640}
-              height={640}
-            />
-            <span>
-              <strong>{experience.name}</strong>
-              <small>{experience.note}</small>
-            </span>
-          </button>
-        ))}
-      </div>
+        {experience.name}
+      </h1>
+      <button
+        className="beta-text"
+        type="button"
+        onClick={() => selectExperience(null)}
+      >
+        Change experience
+      </button>
       <div className="beta-choice-layout">
         <form
           className="beta-card"
@@ -682,7 +760,7 @@ function CustomerChoice({
                 aria-label="Surprise Me"
                 aria-describedby="beta-style-surprise-note"
                 disabled={suggesting}
-                onClick={suggestStyle}
+                onClick={() => suggestStyle(experience.id)}
               >
                 <strong>Surprise Me</strong>
                 <span id="beta-style-surprise-note">
@@ -690,7 +768,11 @@ function CustomerChoice({
                 </span>
               </button>
             </div>
-            <p className="beta-style-result beta-small" role="status">
+            <p
+              id="beta-style-recommendation"
+              className="beta-style-result beta-small"
+              role="status"
+            >
               {suggestionNotice}
             </p>
           </fieldset>
@@ -741,13 +823,7 @@ function CustomerChoice({
           </p>
         </form>
         <div className="beta-card beta-choice-summary">
-          <h2>
-            {
-              experiences.find(
-                (experience) => experience.id === preferences.experience,
-              )?.name
-            }
-          </h2>
+          <h2>Your session details</h2>
           <p>
             {preferences.duration} minutes · {human(preferences.format)} ·{" "}
             {preferences.language}
@@ -1009,7 +1085,9 @@ function BookingHistory({ api, revision, onSelect, onRepeat }) {
                   className="beta-secondary"
                   onClick={() => onRepeat(booking)}
                 >
-                  Repeat experience
+                  {bookableExperiences.some(({ id }) => id === booking.experience)
+                    ? "Repeat experience"
+                    : "Find a new moment"}
                 </button>
               )}
             </div>

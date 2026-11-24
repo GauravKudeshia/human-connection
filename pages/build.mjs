@@ -46,7 +46,7 @@ let css = await readFile(file("app/globals.css"), "utf8");
 const favicon =
   "data:image/svg+xml," +
   encodeURIComponent(await readFile(file("public/favicon.svg"), "utf8"));
-const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Choose a laugh, a listening ear, or a playful detour. Explore fictional human hosts and optional activities in a free interactive demo."><title>Human Connection — Interactive Demo</title><link rel="icon" href="${favicon}"><style>${css}</style></head><body><div id="root"></div><noscript>Enable JavaScript to try Human Connection.</noscript><script>${outputFiles[0].text.replace(/<\/script/gi, "<\\/script")}</script></body></html>`;
+const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Choose Hear Me Out, Distract Me or Surprise Me. Try a short conversation with a fictional host in the free Human Connection demo."><title>Human Connection — Interactive Demo</title><link rel="icon" href="${favicon}"><style>${css}</style></head><body><div id="root"></div><noscript>Enable JavaScript to try Human Connection.</noscript><script>${outputFiles[0].text.replace(/<\/script/gi, "<\\/script")}</script></body></html>`;
 await mkdir(file("docs/"), { recursive: true });
 await writeFile(file("docs/index.html"), html);
 await writeFile(file("docs/.nojekyll"), "");

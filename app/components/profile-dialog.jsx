@@ -1,11 +1,14 @@
 "use client";
 import React, { useState } from "react";
 import { ArrowRight, Heart, MessageCircle, VideoOff } from "lucide-react";
-import { stylesFor, styleName, money } from "../../lib/catalog.mjs";
+import {
+  bookableExperiences,
+  bookableStylesFor,
+  money,
+} from "../../lib/catalog.mjs";
 import { priceFor, isTerminal } from "../../lib/demo-policy.mjs";
 import { hostPhoto } from "../../lib/presentation.mjs";
 import { SessionOptions, EligibilityFields } from "./booking-options";
-import { expName } from "./shared";
 export default function ProfileDialog({
   host: h,
   preferences,
@@ -18,15 +21,22 @@ export default function ProfileDialog({
   openFlow,
   close,
 }) {
+  const offers = bookableExperiences.filter(({ id }) =>
+    h.experiences.includes(id),
+  );
+  const expertise = offers
+    .flatMap(({ id }) => bookableStylesFor(id))
+    .filter(({ id }) => h.styles.includes(id));
   const [choice, setChoice] = useState(() => {
-    const experience = h.experiences.includes(preferences?.experience)
+    const experience = offers.some(({ id }) => id === preferences?.experience)
       ? preferences.experience
-      : h.experiences[0];
+      : offers[0]?.id;
+    const styles = bookableStylesFor(experience);
     return {
       experience,
-      style: stylesFor(experience).some((x) => x.id === preferences?.style)
+      style: styles.some((x) => x.id === preferences?.style)
         ? preferences.style
-        : null,
+        : styles[0]?.id,
       duration: preferences?.duration || 15,
       format: h.formats.includes(preferences?.format)
         ? preferences.format
@@ -47,6 +57,7 @@ export default function ProfileDialog({
   const current = s?.bookings.find((b) => !isTerminal(b.status));
   async function reserve(e) {
     e.preventDefault();
+    if (!offers.length || !choice.style) return;
     if (!s) {
       setModal({ type: "signin" });
       return;
@@ -92,18 +103,20 @@ export default function ProfileDialog({
             <span key={x}>{x}</span>
           ))}
         </div>
-        <div className="profile-expertise">
-          <h4>Conversation styles to explore</h4>
-          <div className="tags">
-            {h.styles.map((id) => (
-              <span key={id}>{styleName(id)}</span>
-            ))}
+        {expertise.length > 0 && (
+          <div className="profile-expertise">
+            <h4>Conversation styles to explore</h4>
+            <div className="tags">
+              {expertise.map(({ id, name }) => (
+                <span key={id}>{name}</span>
+              ))}
+            </div>
+            <p className="demo-caption">
+              Sample profile preferences. Experience approval and auditions apply
+              to future real hosts.
+            </p>
           </div>
-          <p className="demo-caption">
-            Sample profile preferences. Experience approval and auditions apply
-            to future real hosts.
-          </p>
-        </div>
+        )}
         <div className="written-intro">
           <span>
             <VideoOff size={17} />
@@ -128,8 +141,9 @@ export default function ProfileDialog({
           </span>
         </div>
         <p className="demo-caption">
-          Offers {h.experiences.map(expName).join(" · ")}. No real host is
-          connected.
+          {offers.length
+            ? `Offers ${offers.map(({ name }) => name).join(" · ")} in this demo.`
+            : "This profile is unavailable for new demo sessions."}
         </p>
         {reviews.length > 0 && (
           <details className="demo-reviews">
@@ -149,34 +163,35 @@ export default function ProfileDialog({
           <label className="field-label">
             Your experience
             <select
-              value={choice.experience}
+              value={choice.experience || ""}
+              disabled={!offers.length}
               onChange={(e) =>
                 setChoice({
                   ...choice,
                   experience: e.target.value,
-                  style: null,
+                  style: bookableStylesFor(e.target.value)[0]?.id,
                 })
               }
             >
-              {h.experiences.map((id) => (
+              {offers.map(({ id, name }) => (
                 <option key={id} value={id}>
-                  {expName(id)}
+                  {name}
                 </option>
               ))}
             </select>
           </label>
           <label className="field-label">
-            Conversation style (optional)
+            Conversation style
             <select
               value={choice.style || ""}
+              disabled={!offers.length}
               onChange={(e) =>
-                setChoice({ ...choice, style: e.target.value || null })
+                setChoice({ ...choice, style: e.target.value })
               }
             >
-              <option value="">Let it flow</option>
-              {stylesFor(choice.experience).map((style) => (
+              {bookableStylesFor(choice.experience).map((style) => (
                 <option key={style.id} value={style.id}>
-                  {styleName(style.id)}
+                  {style.name}
                 </option>
               ))}
             </select>
@@ -202,6 +217,7 @@ export default function ProfileDialog({
               className="primary full"
               disabled={
                 busy ||
+                !choice.style ||
                 !isAvailable(h) ||
                 (!s?.eligible && !Object.values(consent).every(Boolean))
               }

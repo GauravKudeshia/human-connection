@@ -545,7 +545,7 @@ main:focus {
 }
 .style-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
 }
 .style-card {
@@ -2272,7 +2272,6 @@ th:not(:first-child) {
     padding: 19px 20px 0;
   }
   .style-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 13px;
   }
   .style-card {
@@ -3053,10 +3052,6 @@ th:not(:first-child) {
   align-items: center;
   gap: 10px 20px;
 }
-.welcome-actions .primary {
-  border-radius: 100px;
-  padding-inline: 22px;
-}
 .welcome-actions .text-btn {
   padding-inline: 0;
 }
@@ -3081,7 +3076,7 @@ th:not(:first-child) {
   min-width: 0;
   background: #483d34;
 }
-.moment-tile-laugh {
+.moment-tile-hear {
   grid-row: span 2;
 }
 .moment-tile img {
@@ -3127,10 +3122,10 @@ th:not(:first-child) {
   letter-spacing: -0.025em;
   line-height: 1.12;
 }
-.moment-tile-laugh .moment-tile-title {
+.moment-tile-hear .moment-tile-title {
   font-size: clamp(31px, 3vw, 46px);
 }
-.moment-tile-laugh .moment-tile-copy {
+.moment-tile-hear .moment-tile-copy {
   left: 22px;
   bottom: 21px;
 }
@@ -3265,13 +3260,13 @@ th:not(:first-child) {
     gap: 8px;
   }
   .moment-tile-copy,
-  .moment-tile-laugh .moment-tile-copy {
+  .moment-tile-hear .moment-tile-copy {
     left: 12px;
     right: 10px;
     bottom: 12px;
   }
   .moment-tile-title,
-  .moment-tile-laugh .moment-tile-title {
+  .moment-tile-hear .moment-tile-title {
     font-size: 24px;
   }
 }
@@ -3310,11 +3305,11 @@ th:not(:first-child) {
   .moment-tile {
     border-radius: 14px;
   }
-  .moment-tile-laugh {
+  .moment-tile-hear {
     grid-column: 1 / -1;
     grid-row: auto;
   }
-  .moment-tile-laugh img {
+  .moment-tile-hear img {
     object-position: center 36%;
   }
   .moment-tile-title {
@@ -3324,11 +3319,11 @@ th:not(:first-child) {
     left: 11px;
     bottom: 10px;
   }
-  .moment-tile-laugh .moment-tile-copy {
+  .moment-tile-hear .moment-tile-copy {
     left: 14px;
     bottom: 12px;
   }
-  .moment-tile-laugh .moment-tile-title {
+  .moment-tile-hear .moment-tile-title {
     font-size: clamp(25px, 7vw, 35px);
   }
   .moment-tile-description {

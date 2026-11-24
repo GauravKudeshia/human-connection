@@ -122,8 +122,8 @@ export default function AppModal({
           <div className="info-item">
             <Check size={18} />
             <span>
-              Browse five fictional hosts across Make Me Laugh, Hear Me Out, and
-              Distract Me.
+              Choose Hear Me Out, Distract Me, or Surprise Me. Suggestions use
+              completed session choices and feedback in your demo workspace.
             </span>
           </div>
           <div className="info-item">

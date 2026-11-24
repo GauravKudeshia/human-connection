@@ -14,7 +14,12 @@ import {
   CheckCircle2,
   Lock,
 } from "lucide-react";
-import { hosts } from "../lib/catalog.mjs";
+import {
+  bookableExperiences,
+  bookableStylesFor,
+  hosts,
+} from "../lib/catalog.mjs";
+import { recommendMoment, recommendStyle } from "../lib/style-recommendation.mjs";
 import { browserDemo } from "../lib/presentation.mjs";
 import { isTerminal, hasPendingReviews } from "../lib/demo-policy.mjs";
 import { hostAvailable, rankMatches } from "../lib/matching.mjs";
@@ -55,6 +60,7 @@ export default function ConnectionApp({ request = fetch } = {}) {
     [opsTab, setOpsTab] = useState("overview"),
     [step, setStep] = useState(0),
     [matchError, setMatchError] = useState("");
+  const [suggestion, setSuggestion] = useState(null);
   const [preferences, setPreferences] = useState({
       experience: "hear",
       style: null,
@@ -196,24 +202,69 @@ export default function ConnectionApp({ request = fetch } = {}) {
   const onStart = () => {
     setStep(0);
     setMatchError("");
+    setSuggestion(null);
     navigate("moment");
   };
+  const historyForSuggestion = () =>
+    (s?.closed ? [] : s?.bookings || []).map((booking) => ({
+      experience: booking.experience,
+      style: booking.style,
+      status: booking.status,
+      rating: booking.rating,
+      worthIt:
+        booking.valueFeedback?.answer === "yes"
+          ? true
+          : booking.valueFeedback?.answer === "no"
+            ? false
+            : null,
+    }));
+
   const chooseExperience = (experience, style = null) => {
-    setPreferences({ ...preferences, experience, style });
-    setStep(style ? 2 : 1);
+    if (experience === "surprise") {
+      const pick = recommendMoment(historyForSuggestion());
+      setSuggestion(pick);
+      if (pick.experience)
+        setPreferences({ ...preferences, experience: pick.experience, style: pick.style });
+      setStep(pick.experience ? 1 : 0);
+    } else {
+      if (!bookableExperiences.some((item) => item.id === experience)) return;
+      const selected = bookableStylesFor(experience).some((item) => item.id === style)
+        ? style
+        : null;
+      setSuggestion(null);
+      setPreferences({ ...preferences, experience, style: selected });
+      setStep(selected ? 2 : 1);
+    }
     setMatchError("");
     navigate("moment");
   };
+  function suggestStyle() {
+    const { experience } = preferences;
+    const pick = recommendStyle(experience, historyForSuggestion());
+    setSuggestion({ ...pick, experience });
+    if (pick.style) setPreferences({ ...preferences, style: pick.style });
+    setMatchError("");
+  }
   const repeatExperience = (booking) => {
+    if (!bookableExperiences.some(({ id }) => id === booking.experience)) {
+      onStart();
+      return;
+    }
+    const style = bookableStylesFor(booking.experience).some(
+      (item) => item.id === booking.style,
+    )
+      ? booking.style
+      : null;
     setPreferences({
       experience: booking.experience,
-      style: booking.style || null,
+      style,
       duration: booking.duration,
       format: booking.format,
       language: booking.language || "English",
     });
+    setSuggestion(null);
     setMatchError("");
-    setStep(2);
+    setStep(style ? 2 : 1);
     navigate("moment");
   };
   const browse = (withPreferences = false) => {
@@ -453,7 +504,6 @@ export default function ConnectionApp({ request = fetch } = {}) {
             )}
             {view === "discover" && (
               <Landing
-                onStart={onStart}
                 onChoose={chooseExperience}
                 onBrowse={() => browse()}
                 onHelp={() => setModal({ type: "help" })}
@@ -462,7 +512,14 @@ export default function ConnectionApp({ request = fetch } = {}) {
             {view === "moment" && (
               <MomentFinder
                 preferences={preferences}
-                history={s?.closed ? [] : s?.bookings}
+                suggestion={suggestion}
+                onChooseExperience={chooseExperience}
+                onSuggestStyle={suggestStyle}
+                onChooseStyle={(style) => {
+                  setSuggestion(null);
+                  setPreferences({ ...preferences, style });
+                  setMatchError("");
+                }}
                 onChange={(value) => {
                   setPreferences(value);
                   setMatchError("");
@@ -473,6 +530,7 @@ export default function ConnectionApp({ request = fetch } = {}) {
                 onBrowse={() => browse(true)}
                 onAdjust={() => {
                   setMatchError("");
+                  setSuggestion(null);
                   setStep(0);
                 }}
                 onBrowseAlternatives={() => {

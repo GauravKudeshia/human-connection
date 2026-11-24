@@ -18,7 +18,7 @@ import {
   RefreshCw,
   Flag,
 } from "lucide-react";
-import { hosts, money, styleName } from "../../lib/catalog.mjs";
+import { bookableExperiences, hosts, money, styleName } from "../../lib/catalog.mjs";
 import { isTerminal } from "../../lib/demo-policy.mjs";
 import { hostPhoto } from "../../lib/presentation.mjs";
 import { expName, human, fmtTime } from "./shared";
@@ -485,7 +485,10 @@ export default function SessionFlow({
         )}
         <div className="post-actions">
           <button className="secondary" onClick={() => onRepeat(b)}>
-            Repeat this experience <ArrowRight size={17} />
+            {bookableExperiences.some(({ id }) => id === b.experience)
+              ? "Repeat this experience"
+              : "Choose a new moment"}{" "}
+            <ArrowRight size={17} />
           </button>
           <button
             className="secondary"

@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { makeBrowserRequest } from "../pages/transport.mjs";
-import { recommendStyle } from "../lib/style-recommendation.mjs";
+import { recommendMoment, recommendStyle } from "../lib/style-recommendation.mjs";
+import { bookableExperiences, bookableStylesFor, experienceChoices } from "../lib/catalog.mjs";
 const storage = () => {
   const map = new Map();
   return {
@@ -43,9 +44,25 @@ test("public preview lets a guest complete a demo checkout and tip with no backe
   assert.equal(saved.journals.length, 3);
   assert.equal(saved.viewer.name, "Demo guest");
   assert.deepEqual(recommendStyle("hear", saved.bookings), { style: "just-listen", reason: "liked" });
+  assert.deepEqual(recommendMoment(saved.bookings), {
+    experience: "hear",
+    style: "just-listen",
+    reason: "liked",
+  });
   const otherTab = await (await makeBrowserRequest(storage(), key)("/api/state")).json();
   assert.equal(otherTab.bookings.length, 0);
   assert.equal(recommendStyle("hear", otherTab.bookings).reason, "starter");
+  assert.deepEqual(recommendMoment(otherTab.bookings), {
+    experience: "distract",
+    style: "trivia-questions",
+    reason: "starter",
+  });
+});
+
+test("the new booking menu offers two experiences and Surprise Me, with two styles for each experience", () => {
+  assert.deepEqual(experienceChoices.map(({ id }) => id), ["hear", "distract", "surprise"]);
+  for (const { id } of bookableExperiences) assert.equal(bookableStylesFor(id).length, 2);
+  assert.deepEqual(bookableStylesFor("laugh"), []);
 });
 
 test("a mid-session storage failure preserves the last saved workspace and requires explicit temporary recovery", async () => {

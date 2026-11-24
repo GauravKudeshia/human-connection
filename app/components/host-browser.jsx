@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
 import { ArrowLeft, Search, Heart } from "lucide-react";
-import { hosts, experiences } from "../../lib/catalog.mjs";
+import { hosts, bookableExperiences } from "../../lib/catalog.mjs";
 import { hostAvailable } from "../../lib/matching.mjs";
 import HostCard from "./host-card";
 import { PageHeading, Empty } from "./shared";
@@ -15,12 +15,17 @@ export default function HostBrowser({
   onBack,
   onClear,
 }) {
+  const experience = bookableExperiences.some(
+    ({ id }) => id === filters.experience,
+  )
+    ? filters.experience
+    : "all";
   const visible = hosts.filter(
     (h) =>
       !s?.blocks.includes(h.id) &&
       (saved ? s?.favorites.includes(h.id) : hostAvailable(s, h)) &&
-      (filters.experience === "all" ||
-        h.experiences.includes(filters.experience)) &&
+      bookableExperiences.some(({ id }) => h.experiences.includes(id)) &&
+      (experience === "all" || h.experiences.includes(experience)) &&
       (filters.format === "any" || h.formats.includes(filters.format)) &&
       (filters.language === "any" || h.languages.includes(filters.language)) &&
       `${h.name} ${h.tags.join(" ")} ${h.interests.join(" ")} ${h.headline}`
@@ -52,12 +57,12 @@ export default function HostBrowser({
         >
           {[
             ["all", "All experiences"],
-            ...experiences.map((e) => [e.id, e.name]),
+            ...bookableExperiences.map((e) => [e.id, e.name]),
           ].map(([id, name]) => (
             <button
               key={id}
-              aria-pressed={filters.experience === id}
-              className={filters.experience === id ? "active" : ""}
+              aria-pressed={experience === id}
+              className={experience === id ? "active" : ""}
               onClick={() => setFilters({ ...filters, experience: id })}
             >
               {name}

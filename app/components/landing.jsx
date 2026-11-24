@@ -14,7 +14,7 @@ import { momentPhoto } from "../../lib/presentation.mjs";
 import ExperienceBoard from "./experience-board";
 import { expName } from "./shared";
 
-const samples = ["laugh-banter", "hear-day", "distract-stories"].map((id) =>
+const samples = ["hear-day", "distract-trivia", "distract-games"].map((id) =>
   activities.find((activity) => activity.id === id),
 );
 
@@ -68,7 +68,7 @@ function ConversationStarter({ onChoose }) {
   );
 }
 
-export default function Landing({ onStart, onChoose, onBrowse, onHelp }) {
+export default function Landing({ onChoose, onBrowse, onHelp }) {
   return (
     <>
       <section className="moment-hero" aria-labelledby="welcome-heading">
@@ -78,8 +78,8 @@ export default function Landing({ onStart, onChoose, onBrowse, onHelp }) {
             In the mood for <em>good company?</em>
           </h1>
           <p className="welcome-intro">
-            Choose how you’d like to spend 15 or 30 minutes with a host. Share a
-            laugh, talk through your day, or play a game together.
+            Talk through your day, take a playful break, or let us suggest a
+            moment for you.
           </p>
           <p className="welcome-pricing">
             Try 15 minutes for {money(priceFor(15))} or 30 minutes for{" "}
@@ -88,9 +88,6 @@ export default function Landing({ onStart, onChoose, onBrowse, onHelp }) {
         </div>
         <ExperienceBoard onChoose={onChoose} />
         <div className="welcome-actions">
-          <button type="button" className="primary" onClick={onStart}>
-            Find My Moment <ArrowRight size={17} aria-hidden="true" />
-          </button>
           <button type="button" className="text-btn" onClick={onBrowse}>
             Explore Hosts <ArrowUpRight size={16} aria-hidden="true" />
           </button>

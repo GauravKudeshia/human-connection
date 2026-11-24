@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
 import { Clock, ArrowRight, Receipt } from "lucide-react";
-import { hosts, money } from "../../lib/catalog.mjs";
+import { bookableExperiences, hosts, money } from "../../lib/catalog.mjs";
 import { isTerminal } from "../../lib/demo-policy.mjs";
 import { hostPhoto } from "../../lib/presentation.mjs";
 import { receiptFor } from "../../lib/receipts.mjs";
@@ -37,6 +37,12 @@ export default function SessionHistory({
         <div className="session-list">
           {s.bookings.map((b) => {
             const h = hosts.find((h) => h.id === b.hostId);
+            const canRepeat = bookableExperiences.some(
+              ({ id }) => id === b.experience,
+            );
+            const canRebook = bookableExperiences.some(({ id }) =>
+              h.experiences.includes(id),
+            );
             return (
               <article className="session-row" key={b.id}>
                 <img src={hostPhoto(h.id)} alt="" />
@@ -76,17 +82,23 @@ export default function SessionHistory({
                           ? "Review & tip"
                           : "Service feedback"}
                       </button>
-                      <button
-                        className="text-btn"
-                        onClick={() =>
-                          setModal({ type: "profile", host: h, preferences: b })
-                        }
-                      >
-                        Rebook {h.name}
-                      </button>
-                      <button className="text-btn" onClick={() => onRepeat(b)}>
-                        Repeat experience
-                      </button>
+                      {canRebook && (
+                        <button
+                          className="text-btn"
+                          onClick={() =>
+                            setModal({ type: "profile", host: h, preferences: b })
+                          }
+                        >
+                          {canRepeat
+                            ? `Rebook ${h.name}`
+                            : `Choose a new moment with ${h.name}`}
+                        </button>
+                      )}
+                      {canRepeat && (
+                        <button className="text-btn" onClick={() => onRepeat(b)}>
+                          Repeat experience
+                        </button>
+                      )}
                     </>
                   )}
                 </div>

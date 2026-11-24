@@ -8,7 +8,7 @@ import {
 } from "../lib/engine.mjs";
 import { activityRounds, activities } from "../lib/activities.mjs";
 import { makeBrowserRequest } from "../pages/transport.mjs";
-import { recommendStyle } from "../lib/style-recommendation.mjs";
+import { recommendMoment, recommendStyle } from "../lib/style-recommendation.mjs";
 
 function workspace() {
   let state = initialState();
@@ -47,49 +47,53 @@ function completed(w) {
 
 test("Surprise Me gives a catalog starting pick in every experience without usable history", () => {
   const history = [
-    { experience: "laugh", style: "playful-banter", status: "CANCELLED", rating: 5 },
+    { experience: "laugh", style: "playful-banter", status: "COMPLETED", rating: 5 },
     { experience: "hear", style: "obsolete-style", status: "COMPLETED", rating: 5 },
   ];
   for (const [experience, style] of [
-    ["laugh", "funny-stories"],
     ["hear", "my-day"],
     ["distract", "trivia-questions"],
   ])
     assert.deepEqual(recommendStyle(experience, history), { style, reason: "starter" });
+  assert.deepEqual(recommendMoment(history), {
+    experience: "distract",
+    style: "trivia-questions",
+    reason: "starter",
+  });
 });
 
 test("Surprise Me stays inside today's experience and varies among positively rated styles", () => {
   const history = [
-    { experience: "hear", style: "just-listen", status: "COMPLETED", rating: 5 },
-    { experience: "laugh", style: "improv-games", status: "COMPLETED", rating: 5 },
-    { experience: "laugh", style: "playful-banter", status: "COMPLETED", worthIt: true },
+    { experience: "distract", style: "conversation-games", status: "COMPLETED", rating: 5 },
+    { experience: "hear", style: "my-day", status: "COMPLETED", rating: 5 },
+    { experience: "hear", style: "just-listen", status: "COMPLETED", worthIt: true },
   ];
-  assert.deepEqual(recommendStyle("laugh", history), {
-    style: "playful-banter",
+  assert.deepEqual(recommendStyle("hear", history), {
+    style: "just-listen",
     reason: "liked",
   });
 });
 
 test("Surprise Me treats past choices as weaker evidence and avoids styles with recent negative feedback", () => {
   const history = [
-    { experience: "laugh", style: "playful-banter", status: "COMPLETED", worthIt: false },
-    { experience: "laugh", style: "playful-banter", status: "COMPLETED", rating: 5 },
-    { experience: "laugh", style: "improv-games", status: "COMPLETED" },
+    { experience: "distract", style: "trivia-questions", status: "COMPLETED", worthIt: false },
+    { experience: "distract", style: "trivia-questions", status: "COMPLETED", rating: 5 },
+    { experience: "distract", style: "conversation-games", status: "COMPLETED" },
   ];
-  assert.deepEqual(recommendStyle("laugh", history), {
-    style: "improv-games",
+  assert.deepEqual(recommendStyle("distract", history), {
+    style: "conversation-games",
     reason: "previous",
   });
 });
 
 test("Surprise Me leaves the choice to the guest if every style has negative feedback", () => {
-  const history = ["funny-stories", "playful-banter", "improv-games"].map((style) => ({
-    experience: "laugh",
+  const history = ["my-day", "just-listen"].map((style) => ({
+    experience: "hear",
     style,
     status: "COMPLETED",
     rating: 1,
   }));
-  assert.deepEqual(recommendStyle("laugh", history), { style: null, reason: "no-fit" });
+  assert.deepEqual(recommendStyle("hear", history), { style: null, reason: "no-fit" });
 });
 
 test("value and private quality feedback preserve independent public ratings and one response per completed session", () => {

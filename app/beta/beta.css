@@ -291,12 +291,6 @@
   background: #e8ebd7;
   color: white;
 }
-.beta-experience.selected {
-  border-color: #40553c;
-  box-shadow:
-    0 0 0 3px #fbf8f2,
-    0 0 0 5px #40553c;
-}
 .beta-experience img {
   width: 100%;
   height: 100%;
@@ -414,6 +408,7 @@
 }
 .beta-style-surprise {
   background: #e8ebd7;
+  grid-column: 1 / -1;
 }
 .beta-style-choice[aria-pressed="true"] {
   border-color: #40553c;
