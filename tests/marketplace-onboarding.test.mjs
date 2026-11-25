@@ -181,6 +181,16 @@ test("intro media remains private until independent moderation and preserves acc
     (await f.service.media(f.stranger, uploaded.introId)).byteLength,
     12,
   );
+  for (const [owner, blocked] of [[f.host, f.stranger], [f.stranger, f.host]]) {
+    await f.db.prepare("INSERT INTO mp_blocks VALUES(?,?,?)").bind(owner.id, blocked.id, start).run();
+    await assert.rejects(() => f.service.media(f.stranger, uploaded.introId), { status: 404 });
+    assert.equal((await f.service.media(f.host, uploaded.introId)).byteLength, 12);
+    await f.db.prepare("DELETE FROM mp_blocks WHERE owner_id=? AND blocked_id=?").bind(owner.id, blocked.id).run();
+  }
+  await f.db.prepare("INSERT INTO mp_blocks VALUES(?,?,?)").bind(f.host.id, f.reviewer.id, start).run();
+  const unsteppedReviewer = await f.market.provisionIdentity({ subject: "reviewer", stepUp: false });
+  await assert.rejects(() => f.service.media(unsteppedReviewer, uploaded.introId), { code: "STEP_UP_REQUIRED" });
+  assert.equal((await f.service.media(f.reviewer, uploaded.introId)).transcript, f.media.transcript);
   assert.equal(
     f.db.sqlite.prepare("SELECT intro_reference FROM mp_host_profiles").get()
       .intro_reference,

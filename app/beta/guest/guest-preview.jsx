@@ -13,6 +13,7 @@ const statusCopy = {
   REVOKED: "The invitation was withdrawn.",
   EXPIRED: "The invitation expired.",
   SESSION_ENDED: "The session has ended.",
+  UNAVAILABLE: "This guest link is no longer active.",
 };
 const canLeave = ["GUEST_WAITING", "GUEST_ADMITTED"];
 
@@ -45,13 +46,19 @@ async function guestRequest(scope, body, { signal, fetcher }) {
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
-    signal,
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
   });
   const result = await response.json();
-  if (!response.ok)
-    throw new Error(result.error?.message || "The guest preview is unavailable.");
+  if (!response.ok) {
+    const failure = new Error(result.error?.message || "The guest preview is unavailable.");
+    failure.code = result.error?.code;
+    if (response.status === 429) failure.retryDelay = Number(response.headers.get("retry-after")) * 1000;
+    throw failure;
+  }
   return result.data;
 }
+
+const accessEnded = (failure) => ["INVITATION_UNAVAILABLE", "GUEST_PREVIEW_DISABLED"].includes(failure.code);
 
 export default function GuestPreview({ fetcher = fetch }) {
   const [state, setState] = useState(null);
@@ -72,10 +79,15 @@ export default function GuestPreview({ fetcher = fetch }) {
       try {
         const data = await guestRequest(saved, null, { signal: controller.signal, fetcher });
         if (controller.signal.aborted) return;
-        setScope(saved);
+        if (canLeave.includes(data.status)) setScope(saved);
+        else saveScope("");
         setState(data);
       } catch (failure) {
-        if (!controller.signal.aborted) setError(failure.message);
+        if (controller.signal.aborted) return;
+        if (accessEnded(failure)) {
+          saveScope("");
+          setState({ status: "UNAVAILABLE" });
+        } else setError(failure.message);
       }
     }
     void reconnect();
@@ -87,16 +99,29 @@ export default function GuestPreview({ fetcher = fetch }) {
     const controller = new AbortController();
     let timer;
     async function refresh() {
+      let delay = 3000;
       try {
         const data = await guestRequest(scope, null, { signal: controller.signal, fetcher });
         if (!controller.signal.aborted) {
+          if (!canLeave.includes(data.status)) {
+            saveScope("");
+            setScope("");
+          }
           setState(data);
           setError("");
         }
       } catch (failure) {
-        if (!controller.signal.aborted) setError(failure.message);
+        if (!controller.signal.aborted && accessEnded(failure)) {
+          saveScope("");
+          setScope("");
+          setState({ status: "UNAVAILABLE" });
+          setError("");
+        } else if (!controller.signal.aborted) {
+          setError(failure.message);
+          if (failure.retryDelay > delay) delay = Math.min(failure.retryDelay, 60_000);
+        }
       } finally {
-        if (!controller.signal.aborted) timer = setTimeout(refresh, 3000);
+        if (!controller.signal.aborted) timer = setTimeout(refresh, delay);
       }
     }
     timer = setTimeout(refresh, 1000);
@@ -129,10 +154,15 @@ export default function GuestPreview({ fetcher = fetch }) {
         setScope("");
         setState(data);
       } else {
-        setNotice("Your test report was recorded for staging review.");
+        setNotice(data.replayed ? "Your earlier test report remains on file." : "Your test report was recorded for staging review.");
       }
     } catch (failure) {
-      setError(failure.message);
+      if (accessEnded(failure)) {
+        saveScope("");
+        setScope("");
+        setState({ status: "UNAVAILABLE" });
+        if (readFragment()) history.replaceState(history.state, "", location.pathname + location.search);
+      } else setError(failure.message);
     } finally {
       setBusy(false);
     }
@@ -168,7 +198,7 @@ export default function GuestPreview({ fetcher = fetch }) {
             <p>The guest preview keeps camera and microphone off.</p>
             <details>
               <summary>Report a safety concern</summary>
-              <p>Choose a test category. Avoid entering private conversation details.</p>
+              <p>One test report can be saved per guest visit. Choose a category and leave out private conversation details.</p>
               <label>
                 Concern category
                 <select value={category} onChange={(event) => setCategory(event.target.value)}>

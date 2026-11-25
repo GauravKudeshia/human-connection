@@ -118,6 +118,7 @@ test("only eligible independently moderated written reviews are shared without p
   const written = "The host made the conversation easy.";
   await f.review(f.customer, { ...scores, privateFeedback: own, reviewText: written });
   assert.deepEqual(await publishedReviews(f.db, f.host.id), []);
+  assert.equal((await reviewStatistics(f.db, f.host.id)).publishedReviews, 0);
   assert.equal((await f.own()).review.publicationStatus, "PENDING");
   const unstepped = await f.user("unstepped-moderator", ["host_reviewer"]);
   await assert.rejects(
@@ -140,6 +141,7 @@ test("only eligible independently moderated written reviews are shared without p
   });
   await moderate(f.reviewer, pending.textVersion);
   assert.deepEqual(await publishedReviews(f.db, f.host.id), [written]);
+  assert.equal((await reviewStatistics(f.db, f.host.id)).publishedReviews, 1);
   assert.deepEqual(await f.service.read(f.reviewer, "review-moderation"), []);
   assert.equal(
     (await f.service.read(f.reviewer, "review-published"))[0].bookingId,
@@ -147,6 +149,7 @@ test("only eligible independently moderated written reviews are shared without p
   );
   await f.review(f.customer, { ...scores, reviewText: "An updated review." });
   assert.deepEqual(await publishedReviews(f.db, f.host.id), []);
+  assert.equal((await reviewStatistics(f.db, f.host.id)).publishedReviews, 0);
   await assert.rejects(
     () => moderate(f.reviewer, pending.textVersion),
     { code: "INVALID_STATE" },

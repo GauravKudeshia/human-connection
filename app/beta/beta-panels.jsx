@@ -18,53 +18,11 @@ import {
   PrivacyReview,
 } from "./beta-additions";
 
-export function useResource(
-  api,
-  resource,
-  id,
-  revision,
-  filters,
-  pollInterval = 8000,
-) {
-  const [snapshot, setSnapshot] = useState({ key: null, data: null, error: "" });
-  const filterKey = JSON.stringify(filters || {});
-  const resourceKey = resource + "|" + (id || "") + "|" + filterKey;
-  useEffect(() => {
-    let current = true;
-    let timer;
-    async function load() {
-      try {
-        const result = await api.read(resource, id, JSON.parse(filterKey));
-        if (current)
-          setSnapshot({ key: resourceKey, data: result, error: "" });
-      } catch (issue) {
-        if (current)
-          setSnapshot((previous) => ({
-            key: resourceKey,
-            // A temporary polling failure should not unmount an active call.
-            data:
-              previous.key === resourceKey &&
-              (!issue.status || issue.status >= 500 || issue.status === 429)
-                ? previous.data
-                : null,
-            error: issue.message,
-          }));
-      } finally {
-        if (current && pollInterval > 0) timer = setTimeout(load, pollInterval);
-      }
-    }
-    void load();
-    return () => {
-      current = false;
-      clearTimeout(timer);
-    };
-  }, [api, resource, id, revision, filterKey, resourceKey, pollInterval]);
-  return {
-    data: snapshot.key === resourceKey ? snapshot.data : null,
-    error: snapshot.key === resourceKey ? snapshot.error : "",
-    loading: snapshot.key !== resourceKey,
-  };
-}
+import { useResource } from "./beta-resource";
+import { HostSchedule, ScheduledReservations } from "./beta-schedule";
+
+export { useResource } from "./beta-resource";
+
 export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
   const available = me.hostAvailable === true;
   const {
@@ -232,6 +190,19 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
           )}
         </section>
       )}
+      {approved && (
+        <>
+          <ScheduledReservations
+            api={api}
+            run={run}
+            busy={busy}
+            revision={revision}
+            onSelect={onSelect}
+            hostView
+          />
+          <HostSchedule api={api} run={run} busy={busy} revision={revision} />
+        </>
+      )}
       {earnings && (
         <div className="beta-card">
           <h2>Recorded earnings</h2>
@@ -247,9 +218,9 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
       )}
       {isHost && <HostQuality api={api} revision={revision} />}
       {approved && (
-        <HostLanguageSettings
-          key={application.languages}
-          value={application.languages}
+        <HostProfileSettings
+          api={api}
+          profile={application}
           busy={busy}
           run={run}
         />
@@ -568,25 +539,145 @@ function LanguageFields({ languages, onChange, disabled }) {
   );
 }
 
-function HostLanguageSettings({ value, busy, run }) {
-  const [languages, setLanguages] = useState(() => readHostLanguages(value));
+function HostProfileFields({ name, setName, bio, setBio, topics, setTopics }) {
+  return (
+    <>
+      <div className="beta-form-grid">
+        <label>
+          Public display name
+          <input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required />
+        </label>
+        <label>
+          Biography
+          <textarea value={bio} onChange={(event) => setBio(event.target.value)} maxLength={1000} required />
+        </label>
+      </div>
+      <label>
+        Conversation topics (optional)
+        <input value={topics} onChange={(event) => setTopics(event.target.value)} maxLength={335} />
+        <span className="beta-small">Separate up to eight topics with commas. Keep each topic to 40 characters.</span>
+      </label>
+    </>
+  );
+}
+
+function HostStyleFields({ styles, onChange }) {
+  return (
+    <fieldset>
+      <legend>Conversation styles</legend>
+      <div className="beta-form-grid">
+        {experiences.map((experience) => (
+          <div key={experience.id}>
+            <h4>{experience.name}</h4>
+            {stylesFor(experience.id).map((style) => (
+              <label className="beta-checkbox" key={style.id}>
+                <input type="checkbox" checked={styles.includes(style.id)} onChange={() => onChange(toggleChoice(styles, style.id))} />
+                {style.name}
+              </label>
+            ))}
+          </div>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function HostFormatFields({ formats, onChange }) {
+  return (
+    <fieldset>
+      <legend>Formats you offer</legend>
+      {["audio", "video"].map((format) => (
+        <label className="beta-checkbox" key={format}>
+          <input type="checkbox" checked={formats.includes(format)} onChange={() => onChange(toggleChoice(formats, format))} />
+          {human(format)}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+const toggleChoice = (list, item) =>
+  list.includes(item) ? list.filter((value) => value !== item) : [...list, item];
+const splitTopics = (value) => value.split(",").map((topic) => topic.trim()).filter(Boolean);
+
+function HostProfileSettings({ api, profile, busy, run }) {
+  const [name, setName] = useState(profile.display_name);
+  const [bio, setBio] = useState(profile.biography);
+  const [topics, setTopics] = useState(() => applicationChoices(null, profile.interests, []).join(", "));
+  const [languages, setLanguages] = useState(() => readHostLanguages(profile.languages));
+  const [formats, setFormats] = useState(() => applicationChoices(null, profile.formats, []));
+  const [styles, setStyles] = useState(() => applicationChoices(null, profile.styles, []));
+  const [version, setVersion] = useState(profile.updated_at);
+  const [requiresReload, setRequiresReload] = useState(false);
+  const [reloading, setReloading] = useState(false);
+  const [reloadError, setReloadError] = useState("");
+  const conflict = requiresReload || profile.updated_at > version;
+  async function loadLatest() {
+    setReloading(true);
+    setReloadError("");
+    try {
+      const latest = await api.read("application");
+      if (latest?.status !== "APPROVED" || latest.updated_at <= version)
+        throw new Error("The updated profile could not be loaded. Try again.");
+      setName(latest.display_name);
+      setBio(latest.biography);
+      setTopics(applicationChoices(null, latest.interests, []).join(", "));
+      setLanguages(readHostLanguages(latest.languages));
+      setFormats(applicationChoices(null, latest.formats, []));
+      setStyles(applicationChoices(null, latest.styles, []));
+      setVersion(latest.updated_at);
+      setRequiresReload(false);
+    } catch (issue) {
+      setReloadError(issue.message);
+    } finally {
+      setReloading(false);
+    }
+  }
   return (
     <form
       className="beta-card"
-      onSubmit={(event) => {
+      onSubmit={async (event) => {
         event.preventDefault();
-        run(
-          "host-languages",
-          { languages },
-          "Your conversation languages were updated.",
+        if (conflict || reloading) return;
+        const result = await run(
+          "host-profile-edit",
+          {
+            displayName: name, biography: bio, interests: splitTopics(topics),
+            languages, formats, styles, version,
+          },
+          "Your host profile was updated.",
+          {
+            onError(issue) {
+              if (issue.code !== "PROFILE_CHANGED") return false;
+              setRequiresReload(true);
+              return true;
+            },
+          },
         );
+        if (result?.saved) setVersion(result.version);
       }}
     >
-      <h2>Conversation languages</h2>
-      <LanguageFields languages={languages} onChange={setLanguages} disabled={busy} />
-      <button className="beta-primary" disabled={busy || !languages.length}>
-        Save conversation languages
-      </button>
+      <h2>Edit your host profile</h2>
+      <p>These details help guests decide whether your conversations are a good fit.</p>
+      {conflict && (
+        <div className="beta-notice">
+          <p role="status">The saved profile changed. Your unsaved edits are still here. Loading the latest profile will replace the fields below.</p>
+          <button type="button" className="beta-secondary" disabled={busy || reloading} onClick={loadLatest}>
+            {reloading ? "Loading profile…" : "Load latest profile"}
+          </button>
+          {reloadError && <p role="alert">{reloadError}</p>}
+        </div>
+      )}
+      <fieldset disabled={busy || reloading}>
+        <legend>Public host details</legend>
+        <HostProfileFields {...{ name, setName, bio, setBio, topics, setTopics }} />
+        <LanguageFields languages={languages} onChange={setLanguages} disabled={busy} />
+        <HostFormatFields formats={formats} onChange={setFormats} />
+        <HostStyleFields styles={styles} onChange={setStyles} />
+        <button className="beta-primary" disabled={conflict || !languages.length || !formats.length}>
+          Save profile
+        </button>
+      </fieldset>
     </form>
   );
 }
@@ -633,6 +724,9 @@ function HostApplication({ run, busy, application, draft, hasDraft }) {
     draft?.displayName ?? application?.display_name ?? "",
   );
   const [bio, setBio] = useState(draft?.biography ?? application?.biography ?? "");
+  const [topics, setTopics] = useState(() =>
+    applicationChoices(draft?.interests, application?.interests, []).join(", "),
+  );
   const [languages, setLanguages] = useState(() =>
     readHostLanguages(draft?.languages ?? application?.languages ?? []),
   );
@@ -653,7 +747,7 @@ function HostApplication({ run, busy, application, draft, hasDraft }) {
     heading.current?.focus();
   }, [step]);
 
-  const choices = { displayName: name, biography: bio, languages, formats, styles };
+  const choices = { displayName: name, biography: bio, interests: splitTopics(topics), languages, formats, styles };
   const complete = [
     ageConfirmed,
     Boolean(name.trim() && bio.trim()),
@@ -664,10 +758,6 @@ function HostApplication({ run, busy, application, draft, hasDraft }) {
     true,
   ];
   const lastStep = applicationSteps.length - 1;
-  const toggle = (list, item) =>
-    list.includes(item)
-      ? list.filter((value) => value !== item)
-      : [...list, item];
 
   const locked = busy || submitted;
   async function advance(event) {
@@ -725,47 +815,9 @@ function HostApplication({ run, busy, application, draft, hasDraft }) {
       )}
       {step === 1 && (
         <>
-          <div className="beta-form-grid">
-            <label>
-              Public display name
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                maxLength={100}
-                required
-              />
-            </label>
-            <label>
-              Biography
-              <textarea
-                value={bio}
-                onChange={(event) => setBio(event.target.value)}
-                maxLength={1000}
-                required
-              />
-            </label>
-          </div>
+          <HostProfileFields {...{ name, setName, bio, setBio, topics, setTopics }} />
           <p className="beta-small">After submitting, upload a profile photo and short introduction from your host studio.</p>
-          <fieldset>
-            <legend>Conversation style interests</legend>
-            <div className="beta-form-grid">
-              {experiences.map((experience) => (
-                <div key={experience.id}>
-                  <h4>{experience.name}</h4>
-                  {stylesFor(experience.id).map((style) => (
-                    <label className="beta-checkbox" key={style.id}>
-                      <input
-                        type="checkbox"
-                        checked={styles.includes(style.id)}
-                        onChange={() => setStyles(toggle(styles, style.id))}
-                      />
-                      {style.name}
-                    </label>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </fieldset>
+          <HostStyleFields styles={styles} onChange={setStyles} />
         </>
       )}
       {step === 2 && (
@@ -774,19 +826,7 @@ function HostApplication({ run, busy, application, draft, hasDraft }) {
       {step === 3 && (
         <>
           <p>Choose at least one format. Once approved, use the availability switch in your studio to receive immediate requests.</p>
-          <fieldset>
-            <legend>Formats you offer</legend>
-            {["audio", "video"].map((format) => (
-              <label className="beta-checkbox" key={format}>
-                <input
-                  type="checkbox"
-                  checked={formats.includes(format)}
-                  onChange={() => setFormats(toggle(formats, format))}
-                />
-                {human(format)}
-              </label>
-            ))}
-          </fieldset>
+          <HostFormatFields formats={formats} onChange={setFormats} />
         </>
       )}
       {step === 4 && (
@@ -818,6 +858,12 @@ function HostApplication({ run, busy, application, draft, hasDraft }) {
           <dd className="beta-wrap">{name}</dd>
           <dt>Biography</dt>
           <dd className="beta-wrap">{bio}</dd>
+          {choices.interests.length > 0 && (
+            <>
+              <dt>Conversation topics</dt>
+              <dd className="beta-wrap">{choices.interests.join(", ")}</dd>
+            </>
+          )}
           <dt>Languages</dt>
           <dd>{languages.map(({ tag }) => languageName(tag)).join(" · ")}</dd>
           <dt>Formats</dt>
@@ -856,6 +902,48 @@ function HostApplication({ run, busy, application, draft, hasDraft }) {
     </form>
   );
 }
+function GuestReport({ record, run, busy }) {
+  const [disposition, setDisposition] = useState("reviewed");
+  const bookingId = record.booking_id;
+  return (
+    <article className="beta-card">
+      <h2>{human(record.category)}</h2>
+      <p>Sandbox guest report · {new Date(record.createdAt).toLocaleString()}</p>
+      <p className="beta-small">Booking {bookingId}</p>
+      <p className="beta-small">
+        {record.status === "ASSIGNED" && record.assignedToMe
+          ? "Assigned to you"
+          : human(record.status)}
+        {record.disposition ? ` · ${record.disposition.replaceAll("-", " ")}` : ""}
+      </p>
+      {record.status === "OPEN" && (
+        <button
+          className="beta-secondary"
+          disabled={busy}
+          onClick={() => run("demo-guest-report-assign", { bookingId }, "Guest report assigned to you.")}
+        >
+          Assign to me
+        </button>
+      )}
+      {record.status === "ASSIGNED" && record.assignedToMe && (
+        <form onSubmit={(event) => {
+          event.preventDefault();
+          run("demo-guest-report-resolve", { bookingId, disposition }, "Guest report reviewed.");
+        }}>
+          <label>
+            Review outcome
+            <select value={disposition} onChange={(event) => setDisposition(event.target.value)}>
+              <option value="reviewed">Reviewed</option>
+              <option value="follow-up-required">Needs follow-up outside this queue</option>
+            </select>
+          </label>
+          <button className="beta-primary" disabled={busy}>Record outcome</button>
+        </form>
+      )}
+    </article>
+  );
+}
+
 export function OperationsWorkspace({ api, run, busy, revision, roles }) {
   const tabs = [];
   if (roles.some((role) => ["host_reviewer", "admin"].includes(role)))
@@ -1030,11 +1118,7 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
               busy={busy}
             />
           ) : resource === "demo-guest-reports" ? (
-            <article className="beta-card" key={record.booking_id}>
-              <h2>{human(record.category)}</h2>
-              <p>Sandbox guest report · {new Date(record.createdAt).toLocaleString()}</p>
-              <p className="beta-small">Booking {record.booking_id}</p>
-            </article>
+            <GuestReport key={record.booking_id} record={record} run={run} busy={busy} />
           ) : resource === "photos" ? (
             <PhotoReview
               key={record.id}

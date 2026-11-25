@@ -3,9 +3,10 @@ import { createMarketplace } from "../lib/marketplace/store.mjs";
 export async function marketplaceFixture({
   hostCount = 2,
   clock = () => 1800000000000,
+  quoteFor,
 } = {}) {
   const db = sqliteD1(),
-    service = createMarketplace(db, { clock });
+    service = createMarketplace(db, { clock, quoteFor });
   const user = async (subject, roles = [], stepUp = false) => {
     const actor = await service.provisionIdentity({
       subject,

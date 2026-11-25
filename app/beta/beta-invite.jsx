@@ -27,9 +27,10 @@ export default function BetaInvite({ api, run, busy, booking, customer, revision
     undefined,
     3000,
   );
-  const [link, setLink] = useState("");
+  const [issuedLink, setIssuedLink] = useState(null);
   const [copyMessage, setCopyMessage] = useState("");
   const status = data?.status;
+  const link = status === "ISSUED" && issuedLink?.bookingId === booking.id ? issuedLink.url : "";
 
   async function act(action) {
     const result = await run("guest-invite-" + action, { bookingId: booking.id });
@@ -38,9 +39,9 @@ export default function BetaInvite({ api, run, busy, booking, customer, revision
     if (result.invitationToken) {
       const url = new URL("/beta/guest", location.origin);
       url.hash = new URLSearchParams({ invite: result.invitationToken }).toString();
-      setLink(url.href);
+      setIssuedLink({ bookingId: booking.id, url: url.href });
     } else if (["cancel", "remove", "decline", "withdraw"].includes(action)) {
-      setLink("");
+      setIssuedLink(null);
     }
   }
 
@@ -51,7 +52,7 @@ export default function BetaInvite({ api, run, busy, booking, customer, revision
     if (status === "HOST_APPROVED")
       controls.push(["issue", "Create guest link"]);
     if (status === "ISSUED" && !link)
-      controls.push(["issue", "Replace unused link"]);
+      controls.push(["issue", "Recover or replace unused link"]);
     if (status === "GUEST_WAITING") {
       controls.push(["admit", "Admit guest"], ["decline", "Decline admission"]);
     }

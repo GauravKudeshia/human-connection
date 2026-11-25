@@ -18,6 +18,7 @@ import {
   bookableExperiences,
   bookableStylesFor,
   hosts,
+  stylesFor,
 } from "../lib/catalog.mjs";
 import { recommendStyle } from "../lib/style-recommendation.mjs";
 import { browserDemo } from "../lib/presentation.mjs";
@@ -211,6 +212,7 @@ export default function ConnectionApp({ request = fetch } = {}) {
       style: booking.style,
       status: booking.status,
       rating: booking.rating,
+      comfortRating: booking.comfortRating,
       worthIt:
         booking.valueFeedback?.answer === "yes"
           ? true
@@ -242,7 +244,7 @@ export default function ConnectionApp({ request = fetch } = {}) {
       onStart();
       return;
     }
-    const style = bookableStylesFor(booking.experience).some(
+    const style = stylesFor(booking.experience).some(
       (item) => item.id === booking.style,
     )
       ? booking.style

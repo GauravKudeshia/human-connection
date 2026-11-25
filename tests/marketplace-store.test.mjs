@@ -136,6 +136,63 @@ test("routine reads avoid sweeping other users' bookings while participant reads
   assert.equal((await f.service.read(f.customer, "bookings"))[0].status, "EXPIRED");
 });
 
+test("only the buyer sees the assigned host's display name in the booking summary", async (t) => {
+  const f = await fixture();
+  t.after(() => f.db.close());
+  const { booking } = await f.reserve();
+  assert.equal(
+    (await f.service.read(f.customer, "booking", booking.id)).host_display_name,
+    "Fictional host fixture",
+  );
+  assert.equal((await f.service.read(f.host, "booking", booking.id)).host_display_name, null);
+  await assert.rejects(
+    () => f.service.read(f.stranger, "booking", booking.id),
+    { status: 404 },
+  );
+});
+
+test("approved host edits are versioned and eligible discovery searches declared topics", async (t) => {
+  const f = await fixture();
+  t.after(() => f.db.close());
+  const profile = await f.service.read(f.host, "application");
+  const edits = {
+    displayName: "Élodie River",
+    biography: "Ask about illustrated essays",
+    interests: ["Indie cinema", "City gardens", "INDIE CINEMA"],
+    languages: ["en"],
+    formats: ["video", "audio"],
+    styles: ["playful-banter"],
+    version: profile.updated_at,
+  };
+  await assert.rejects(() => f.act(f.stranger, "host-profile-edit", edits), { status: 403 });
+  const results = await Promise.allSettled([
+    f.act(f.host, "host-profile-edit", edits),
+    f.act(f.host, "host-profile-edit", { ...edits, interests: ["Superseded"] }),
+  ]);
+  assert.equal(results.filter(({ status }) => status === "fulfilled").length, 1);
+  const saved = results.find(({ status }) => status === "fulfilled").value;
+  assert.deepEqual(saved, { saved: true, version: profile.updated_at + 1 });
+  assert.equal((await f.service.read(f.host, "application")).updated_at, saved.version);
+  assert.equal(results.find(({ status }) => status === "rejected").reason.code, "PROFILE_CHANGED");
+  for (const query of ["Élodie", "river", "illustrated essays", "city gardens", "playful banter"]) {
+    const hosts = await f.service.read(f.customer, "hosts", null, { ...choice, query });
+    assert.deepEqual(hosts.map(({ display_name }) => display_name), ["Élodie River"]);
+    assert.equal(JSON.parse(hosts[0].interests).length, 2);
+  }
+  for (const query of ["%", "test-only performer", "superseded"]) {
+    assert.deepEqual(await f.service.read(f.customer, "hosts", null, { ...choice, query }), []);
+  }
+  const savedProfile = await f.service.read(f.host, "application");
+  await f.act(f.host, "host-languages", { languages: ["en"] });
+  assert.ok((await f.service.read(f.host, "application")).updated_at > savedProfile.updated_at);
+  await assert.rejects(
+    () => f.act(f.host, "host-profile-edit", { ...edits, version: savedProfile.updated_at }),
+    { code: "PROFILE_CHANGED" },
+  );
+  await f.act(f.reviewer, "host-review", { hostId: f.host.id, status: "SUSPENDED", reason: "Test suspension" });
+  assert.deepEqual(await f.service.read(f.customer, "hosts", null, { ...choice, query: "River" }), []);
+});
+
 test("32 independent customers share one atomic host claim and only the winner produces booking evidence", async (t) => {
   const f = await fixture();
   t.after(() => f.db.close());

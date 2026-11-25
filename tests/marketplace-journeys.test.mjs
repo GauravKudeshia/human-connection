@@ -663,3 +663,54 @@ test("local HTTP boundary ignores impersonating account headers and rejects cros
     403,
   );
 });
+
+test("scheduled reservation hands off into verified fixture checkout, attendance and receipt", async (t) => {
+  const f = await fixture(t, { hostCount: 1 });
+  const [host] = f.hosts;
+  const scheduledAt = f.now() + 60 * 60_000;
+  function wall(at) {
+    return new Date(at).toISOString().slice(0, 16);
+  }
+  await f.ok(host, {
+    action: "schedule-block-save",
+    payload: {
+      startsLocal: wall(scheduledAt),
+      endsLocal: wall(scheduledAt + 60 * 60_000),
+      timeZone: "UTC",
+    },
+  });
+  const { slots } = await f.ok(f.customer, {
+    resource: "schedule-slots",
+    filter: { ...f.choice, hostId: host.id },
+  });
+  const { reservation } = await f.ok(f.customer, {
+    action: "schedule-reserve",
+    payload: {
+      ...f.choice,
+      slotId: slots[0].id,
+      expectedPriceCents: slots[0].priceCents,
+      expectedCurrency: slots[0].currency,
+    },
+  });
+  assert.equal(reservation.startsAt, Date.parse(wall(scheduledAt) + ":00Z"));
+  assert.deepEqual(f.calls, []);
+  f.setNow(reservation.startsAt);
+  await f.ok(host, { action: "heartbeat", payload: { available: true } });
+  const { booking } = await f.ok(f.customer, {
+    action: "schedule-check-in",
+    payload: { reservationId: reservation.id },
+  });
+  await f.acceptAndPay(booking);
+  await f.join(booking);
+  const joined = f.now();
+  f.setNow(joined + 15 * 60_000);
+  for (const actor of [f.customer, host])
+    await f.signedDaily(booking, "participant.left", actor, {
+      joined,
+      duration: 15 * 60_000,
+    });
+  const receipt = await f.ok(f.customer, { resource: "receipt", id: booking.id });
+  assert.equal(receipt.receipt.baseCharge, 1000);
+  assert.equal(receipt.receipt.net, 1000);
+  assert.equal((await f.ok(f.customer, { resource: "booking", id: booking.id })).status, "COMPLETED");
+});
