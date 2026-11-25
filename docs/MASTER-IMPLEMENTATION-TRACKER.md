@@ -44,6 +44,8 @@ The normal automated suite covers state transitions, duration/price, ownership, 
 
 This follow-up is covered by the [QA record](QA-AND-TEST-EVIDENCE.md). The prior [full-prompt audit](CURRENT-APPLICATION-AUDIT.md) records the baseline and remaining requirements by part.
 
+The next local pass added same-tab guest claim recovery, post-session reporting with a separate credential, report assignment and safety follow-up, reviewed captions, and stronger Daily room validation. The [latest audit](CURRENT-APPLICATION-AUDIT.md#latest-verification-for-guest-recovery-safety-and-accessibility) records the 266-test result and remaining hosted checks. [Three-person Daily rehearsal](DAILY-GUEST-MEDIA-REHEARSAL.md)
+
 ## Remaining release work
 
 The first operational milestone is one hosted, invite-only rehearsal using three authorized roles, a vetted approved host, the Stripe sandbox and actual two-device Daily calls. Verify request/accept, a captured test payment, poor-network reconnect, correct receipt or failure refund, review and moderation behavior, a staged guest wait/revoke cycle, and an alert received by a staffed operator. Hosted browser/screen-reader checks, deploy/rollback and D1/R2 restore are separate from the local suite.

@@ -12,4 +12,6 @@ export const marketplaceMigrations = Object.freeze([
   "marketplace-host-interests.sql",
   "marketplace-scheduling.sql",
   "marketplace-guest-safeguards.sql",
+  "marketplace-guest-report-operations.sql",
+  "marketplace-intro-captions.sql",
 ]);

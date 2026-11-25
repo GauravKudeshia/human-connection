@@ -9,7 +9,9 @@ import {
   readHostLanguages,
 } from "../../lib/conversation-languages.mjs";
 import { BETA_PRICE_POLICY } from "../../lib/marketplace/pricing.mjs";
+import { maxIntroCaptionBytes } from "../../lib/marketplace/intro-captions.mjs";
 import { human, money } from "./beta-api.mjs";
+import HostIntroduction from "./beta-host-introduction";
 import {
   HostQuality,
   ProfilePhotoUpload,
@@ -59,6 +61,7 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
   const [uploadNotice, setUploadNotice] = useState("");
   const [transcript, setTranscript] = useState("");
   const [consent, setConsent] = useState(false);
+  const introSubmission = useRef(null);
   const [appeal, setAppeal] = useState("");
   const isHost = me.roles.includes("host");
   const approved = isHost && application?.status === "APPROVED";
@@ -80,14 +83,18 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
   }
   async function upload(event) {
     event.preventDefault();
-    const file = event.currentTarget.elements.clip.files[0];
-    const durationSeconds = Number(event.currentTarget.elements.duration.value);
+    const form = event.currentTarget;
+    const file = form.elements.clip.files[0];
+    const durationSeconds = Number(form.elements.duration.value);
+    const captionFile = form.elements.captions.files[0];
+    const captionLanguage = normalizeLanguageTag(form.elements.captionLanguage.value);
     if (
       !file ||
       file.size > 8 * 1024 * 1024 ||
       ![
         "audio/mpeg",
         "audio/mp4",
+        "audio/ogg",
         "audio/webm",
         "video/mp4",
         "video/webm",
@@ -96,8 +103,17 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
       setUploadError("Choose a supported audio or video clip under 8 MB.");
       return;
     }
+    if (captionFile && (!file.type.startsWith("video/") || !captionLanguage || captionFile.size > maxIntroCaptionBytes)) {
+      setUploadError("For video captions, choose a WebVTT file under 16 KiB and enter its language code.");
+      return;
+    }
+    const fields = [file, captionFile, captionLanguage, durationSeconds, transcript, consent];
+    const previous = introSubmission.current;
+    const key = previous?.fields.every((value, index) => value === fields[index]) ? previous.key : crypto.randomUUID();
+    introSubmission.current = { key, fields };
     setUploading(true);
     setUploadError("");
+    setUploadNotice("");
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       let binary = "";
@@ -106,20 +122,27 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
       const response = await fetch("/api/marketplace/media", {
         method: "POST",
         credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": key },
         body: JSON.stringify({
           contentType: file.type,
           transcript,
           consent,
           durationSeconds,
           base64: btoa(binary),
+          ...(captionFile ? { captions: { language: captionLanguage, text: await captionFile.text() } } : {}),
         }),
       });
       const body = await response.json();
+      if (body.error?.code === "UPLOAD_FAILED" || body.result?.status === "FAILED") {
+        introSubmission.current = null;
+        throw new Error("The introduction could not be stored. Try the upload again.");
+      }
       if (!response.ok)
         throw new Error(
           body.error?.message || "Your introduction could not be uploaded.",
         );
+      introSubmission.current = null;
+      form.reset();
       setConsent(false);
       setTranscript("");
       setUploadNotice("Your introduction is submitted for review.");
@@ -276,7 +299,7 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
               <input
                 name="clip"
                 type="file"
-                accept="audio/mpeg,audio/mp4,audio/webm,video/mp4,video/webm"
+                accept="audio/mpeg,audio/mp4,audio/ogg,audio/webm,video/mp4,video/webm"
                 required
               />
             </label>
@@ -299,6 +322,20 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
                 required
               />
             </label>
+            <fieldset>
+              <legend>Video captions</legend>
+              <p className="beta-small">Guests can play a video after its timed captions pass review. An approved video without captions is shown as text.</p>
+              <div className="beta-form-grid">
+                <label>
+                  WebVTT caption file
+                  <input type="file" name="captions" accept=".vtt,text/vtt" />
+                </label>
+                <label>
+                  Caption language code
+                  <input type="text" name="captionLanguage" placeholder="en or hi" maxLength={64} />
+                </label>
+              </div>
+            </fieldset>
             <label className="beta-checkbox">
               <input
                 type="checkbox"
@@ -306,8 +343,8 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
                 onChange={(event) => setConsent(event.target.checked)}
               />
               <span>
-                I created or am authorized to publish this clip and consent to
-                its use on my host profile after approval.
+                I created this introduction or have permission to publish it. I consent to using the clip,
+                transcript and any captions on my host profile after approval.
               </span>
             </label>
             <button
@@ -911,7 +948,7 @@ function GuestReport({ record, run, busy }) {
       <p>Sandbox guest report · {new Date(record.createdAt).toLocaleString()}</p>
       <p className="beta-small">Booking {bookingId}</p>
       <p className="beta-small">
-        {record.status === "ASSIGNED" && record.assignedToMe
+        {record.status === "ESCALATED" ? "Follow-up required" : record.status === "ASSIGNED" && record.assignedToMe
           ? "Assigned to you"
           : human(record.status)}
         {record.disposition ? ` · ${record.disposition.replaceAll("-", " ")}` : ""}
@@ -925,16 +962,29 @@ function GuestReport({ record, run, busy }) {
           Assign to me
         </button>
       )}
-      {record.status === "ASSIGNED" && record.assignedToMe && (
+      {record.canReassign && (
+        <button
+          className="beta-secondary"
+          disabled={busy}
+          onClick={() => run("demo-guest-report-reassign", { bookingId, assignedAt: record.assignedAt }, "Guest report reassigned to you.")}
+        >
+          Take over report
+        </button>
+      )}
+      {["ASSIGNED", "ESCALATED"].includes(record.status) && record.assignedToMe && (
         <form onSubmit={(event) => {
           event.preventDefault();
-          run("demo-guest-report-resolve", { bookingId, disposition }, "Guest report reviewed.");
+          run(
+            "demo-guest-report-resolve",
+            { bookingId, disposition },
+            disposition === "reviewed" ? "Guest report closed." : "Guest report marked for follow-up.",
+          );
         }}>
           <label>
             Review outcome
             <select value={disposition} onChange={(event) => setDisposition(event.target.value)}>
-              <option value="reviewed">Reviewed</option>
-              <option value="follow-up-required">Needs follow-up outside this queue</option>
+              <option value="reviewed">Reviewed and ready to close</option>
+              <option value="follow-up-required">Keep open for follow-up</option>
             </select>
           </label>
           <button className="beta-primary" disabled={busy}>Record outcome</button>
@@ -985,7 +1035,7 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
   const resource = tabs.some(([key]) => key === selected)
     ? selected
     : tabs[0]?.[0];
-  const isSafety = resource === "safety" || resource === "safety-history";
+  const isSafety = ["safety", "safety-history", "demo-guest-reports"].includes(resource);
   const isWrittenReview =
     resource === "review-moderation" || resource === "review-published";
   const isPaged = isSafety || isWrittenReview;
@@ -1209,6 +1259,7 @@ function StaffRecord({ resource, record, run, busy }) {
     new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10),
   );
   const [durationConfirmed, setDurationConfirmed] = useState(false);
+  const [captionsConfirmed, setCaptionsConfirmed] = useState(false);
   const [identityReference, setIdentityReference] = useState("");
   const [payoutReference, setPayoutReference] = useState("");
   const [certificationStatus, setCertificationStatus] = useState("APPROVED");
@@ -1283,7 +1334,7 @@ function StaffRecord({ resource, record, run, busy }) {
     if (resource === "intros")
       return run(
         "host-intro-review",
-        { introId: record.id, decision: status, reason, durationConfirmed },
+        { introId: record.id, decision: status, reason, durationConfirmed, captionsConfirmed },
         "Introduction review saved.",
       );
     return run(
@@ -1329,22 +1380,12 @@ function StaffRecord({ resource, record, run, busy }) {
           . Matching also requires current eligibility and a recent heartbeat.
         </p>
       )}
-      <p>
-        {record.biography ||
-          record.narrative ||
-          record.reason ||
-          record.transcript}
-      </p>
+      {resource !== "intros" && (
+        <p>{record.biography || record.narrative || record.reason || record.transcript}</p>
+      )}
       {resource === "intros" && (
         <>
-          <video
-            className="beta-intro-player"
-            controls
-            preload="none"
-            src={"/api/marketplace/media?id=" + encodeURIComponent(record.id)}
-            aria-label="Introduction awaiting review"
-          />
-          <p className="beta-small">{record.transcript}</p>
+          <HostIntroduction intro={record} review />
           <label className="beta-checkbox">
             <input
               type="checkbox"
@@ -1353,6 +1394,18 @@ function StaffRecord({ resource, record, run, busy }) {
             />
             I played this clip and confirmed its 15–30-second duration.
           </label>
+          {record.caption_language ? (
+            <label className="beta-checkbox">
+              <input
+                type="checkbox"
+                checked={captionsConfirmed}
+                onChange={(event) => setCaptionsConfirmed(event.target.checked)}
+              />
+              The spoken audio and relevant sounds match the timed captions.
+            </label>
+          ) : record.content_type.startsWith("video/") && (
+            <p className="beta-small">Approval makes the transcript visible on the host profile. Video playback requires reviewed captions.</p>
+          )}
         </>
       )}
       {decisions.length > 0 && (
@@ -1394,7 +1447,7 @@ function StaffRecord({ resource, record, run, busy }) {
                   status === record.status ||
                   (resource === "intros" &&
                     status === "APPROVED" &&
-                    !durationConfirmed)
+                    (!durationConfirmed || (record.caption_language && !captionsConfirmed)))
                 }
                 onClick={() => decide(status)}
               >

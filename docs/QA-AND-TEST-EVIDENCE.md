@@ -1,5 +1,15 @@
 # QA and test evidence
 
+## Guest recovery, safety and accessibility follow-up
+
+November 24, 2026. **266 tests passed** without failures or skips in the configured suite. ESLint, TypeScript and the Vinext build passed. The two additive migrations were tested against the prior thirteen-migration schema and through the full local SQLite suite.
+
+- Guest integration tests verified recovery after an interrupted response, scope separation, one-time admission, a report after departure, deadline expiry, staff MFA, an audited takeover, pagination, deduplicated alerts, and retention holds. Account closure immediately revokes access and defers erasure while a guest report may be submitted or remains open.
+- A keyboard-driven browser fixture retried an interrupted invitation, observed simulated admission, left the preview and submitted a report. The final screen fit 320, 390, 768 and 1440 px without horizontal overflow. Fixture responses do not use a hosted media connection.
+- Media fixtures verified review and access for WebVTT tracks, transcript fallbacks, caption removal on erasure, private two-person room policy and isolation of guest activity from paid delivery. Native playback on physical devices and screen-reader acceptance remain open.
+
+Production and hosted test credentials were unavailable in this workspace. [Three-person Daily rehearsal](DAILY-GUEST-MEDIA-REHEARSAL.md) · [Latest V3 audit](CURRENT-APPLICATION-AUDIT.md#latest-verification-for-guest-recovery-safety-and-accessibility)
+
 ## Full V3 audit follow-up
 
 The November 24 follow-up and second audit passed **256 tests, with zero failures or skips**, in the normal engine, browser transport, V1.3, experience and marketplace command. ESLint, TypeScript, Vinext and the GitHub Pages demo build passed. A SQLite database with an existing host profile upgraded from 10 to 13 migrations and replayed the three additions successfully. Integrity and foreign-key checks passed.

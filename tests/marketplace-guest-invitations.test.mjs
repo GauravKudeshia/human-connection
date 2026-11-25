@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { createMarketplaceHttp } from "../lib/marketplace/http-router.mjs";
 import { createGuestInvitationHttp } from "../lib/marketplace/guest-invitation-http.mjs";
 import { sweepGuestInvitations } from "../lib/marketplace/guest-invitations.mjs";
+import { createOperations } from "../lib/marketplace/operations.mjs";
+import { createPrivacy } from "../lib/marketplace/privacy.mjs";
 import { MarketplaceError } from "../lib/marketplace/errors.mjs";
 import { marketplaceFixture } from "./marketplace-fixture.mjs";
 
@@ -50,9 +52,9 @@ async function setup(t) {
       },
       body: JSON.stringify({ action, payload: { bookingId: booking.id, ...payload } }),
     }));
-  const inspect = (actor, resource = "guest-invitation") =>
+  const inspect = (actor, resource = "guest-invitation", filters = {}) =>
     memberRoute(new Request(origin + "/api/marketplace?" + new URLSearchParams({
-      resource, id: booking.id,
+      resource, id: booking.id, ...filters,
     }), { headers: { "Test-Verified-Actor": actor.id } }));
   const guest = (body, binding = null, source = origin, { edge = false, address } = {}) => {
     const request = new Request(origin + "/api/marketplace/demo-guest", {
@@ -140,7 +142,7 @@ test("staging guest waiting and admission require both related accounts and leav
   assert.equal((await s.guest({ action: "report", category: "privacy" }, binding)).status, 200);
   assert.equal((await s.inspect(customer, "demo-guest-reports")).status, 403);
   assert.deepEqual((await (await s.inspect(s.f.admin, "demo-guest-reports")).json()).data, [
-    { booking_id: s.booking.id, category: "privacy", createdAt: s.f.clock(), status: "OPEN", assignedToMe: false, assignedAt: null, disposition: null, resolvedAt: null },
+    { booking_id: s.booking.id, category: "privacy", createdAt: s.f.clock(), status: "OPEN", assignedToMe: false, canReassign: false, assignedAt: null, disposition: null, resolvedAt: null },
   ]);
   const inviteRow = s.f.db.sqlite.prepare("SELECT * FROM mp_demo_guest_invitations").get();
   assert(!JSON.stringify(inviteRow).includes(token));
@@ -377,6 +379,11 @@ test("guest reports stay in a scoped MFA queue and follow the reviewed safety re
     VALUES('guest-test-hold','guest-test-deletion',?,'SAFETY','Fixture safety evidence','ACTIVE',?,?,'guest-test-hold')`).run(s.host.id, s.f.admin.id, now);
   s.advance(31_000);
   await sweepGuestInvitations(s.f.db, { clock: s.f.clock, policy });
+  s.advance(s.expiresAt + 3_600_000 - s.f.clock() + 1);
+  await sweepGuestInvitations(s.f.db, {
+    clock: s.f.clock, policy: { approved: true, safetyRetentionMs: 0 },
+  });
+  assert.equal(s.f.db.sqlite.prepare("SELECT retention_ms FROM mp_demo_guest_report_controls").get().retention_ms, policy.safetyRetentionMs);
   assert.equal((await queue(s.safety)).length, 1);
   s.f.db.sqlite.prepare("UPDATE mp_privacy_holds SET status='RELEASED'").run();
   await sweepGuestInvitations(s.f.db, { clock: s.f.clock });
@@ -384,4 +391,88 @@ test("guest reports stay in a scoped MFA queue and follow the reviewed safety re
   await sweepGuestInvitations(s.f.db, { clock: s.f.clock, policy });
   assert.deepEqual(await queue(s.safety), []);
   assert.equal(s.f.db.sqlite.prepare("SELECT COUNT(*) n FROM mp_demo_guest_report_triage").get().n, 0);
+});
+
+test("guest report follow-up stays open, reaches safety alerts, and allows an audited administrator takeover", async (t) => {
+  const s = await setup(t);
+  s.live();
+  const invitation = await s.issue();
+  const binding = await bindGuest(await s.guest({ action: "wait", token: invitation.invitationToken, terms: guestTerms }));
+  await s.command(s.f.customer, "guest-invite-admit");
+  assert.equal((await s.guest({ action: "report", category: "safety" }, binding)).status, 200);
+  assert.equal((await s.command(s.safety, "demo-guest-report-assign")).status, 200);
+  const inspect = async (actor) => (await (await s.inspect(actor, "demo-guest-reports")).json()).data[0];
+  const review = (actor, disposition) => s.command(actor, "demo-guest-report-resolve", { disposition });
+  const { assignedAt } = await inspect(s.safety);
+  assert.equal((await review(s.safety, "follow-up-required")).status, 200);
+  assert.equal((await review(s.safety, "follow-up-required")).status, 200);
+  assert.equal((await inspect(s.safety)).status, "ESCALATED");
+  assert.equal((await inspect(s.f.admin)).canReassign, true);
+
+  const operations = createOperations(s.f.db, { authorize: s.f.service.authorize, clock: s.f.clock });
+  await operations.refreshAlerts();
+  await operations.refreshAlerts();
+  const alerts = await operations.alerts(s.safety);
+  assert.deepEqual(alerts.map(({ kind }) => kind), ["guest_safety_follow_up"]);
+  assert.equal(s.f.db.sqlite.prepare("SELECT COUNT(*) n FROM mp_notifications WHERE user_id=? AND kind='operations_alert'").get(s.safety.id).n, 1);
+  assert.equal((await s.command(s.safety, "demo-guest-report-reassign", { assignedAt })).status, 403);
+  assert.equal((await s.command(s.f.admin, "demo-guest-report-reassign", { assignedAt: assignedAt - 1 })).status, 409);
+  assert.equal((await s.command(s.f.admin, "demo-guest-report-reassign", { assignedAt })).status, 200);
+  assert.equal((await review(s.safety, "reviewed")).status, 409);
+  assert.equal((await review(s.f.admin, "reviewed")).status, 200);
+  assert.equal((await inspect(s.f.admin)).status, "RESOLVED");
+  await operations.refreshAlerts();
+  assert.deepEqual(await operations.alerts(s.safety), []);
+  assert.deepEqual(s.f.db.sqlite.prepare(
+    "SELECT action FROM mp_audit_events WHERE subject_id=? AND action LIKE 'guest-report-%' ORDER BY rowid",
+  ).all(s.booking.id).map(({ action }) => action), [
+    "guest-report-assigned", "guest-report-escalated", "guest-report-reassigned", "guest-report-closed",
+  ]);
+});
+
+test("authorized guest report queue pages preserve older cases beyond the first 100", async (t) => {
+  const s = await setup(t);
+  s.f.db.sqlite.prepare(
+    `WITH RECURSIVE cases(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM cases WHERE n<101)
+     INSERT INTO mp_bookings(id,customer_id,host_id,request_key,fingerprint,experience,duration,format,language,quote,amount_cents,currency,status,expires_at,created_at,updated_at)
+     SELECT 'guest-case-'||n,b.customer_id,b.host_id,'guest-case-'||n,b.fingerprint,b.experience,b.duration,b.format,b.language,b.quote,b.amount_cents,b.currency,'COMPLETED',b.expires_at,b.created_at,b.updated_at
+     FROM cases CROSS JOIN mp_bookings b WHERE b.id=?`,
+  ).run(s.booking.id);
+  s.f.db.sqlite.prepare(
+    `INSERT INTO mp_demo_guest_invitations(booking_id,status,guest_report_category,guest_reported_at,created_at,updated_at)
+     SELECT id,'SESSION_ENDED','privacy',created_at,created_at,updated_at FROM mp_bookings WHERE id LIKE 'guest-case-%'`,
+  ).run();
+  const page = async (value) => (await (await s.inspect(s.safety, "demo-guest-reports", { page: value })).json()).data;
+  const [first, second] = await Promise.all([page(0), page(1)]);
+  assert.deepEqual([first.length, second.length], [100, 1]);
+  assert.equal(new Set([...first, ...second].map(({ booking_id }) => booking_id)).size, 101);
+  assert.equal((await s.inspect(s.safety, "demo-guest-reports", { page: -1 })).status, 400);
+});
+
+test("closing a member account preserves the guest reporting window and unresolved case", async (t) => {
+  const s = await setup(t);
+  s.live();
+  const invitation = await s.issue();
+  const reply = await s.guest({ action: "wait", token: invitation.invitationToken, terms: guestTerms });
+  const reportCookie = reply.headers.getSetCookie()[1].split(";")[0];
+  const { scope } = await bindGuest(reply);
+  await s.command(s.f.customer, "guest-invite-admit");
+  s.f.db.sqlite.prepare("UPDATE mp_bookings SET status='COMPLETED' WHERE id=?").run(s.booking.id);
+  const privacy = createPrivacy(s.f.db, {
+    authorize: s.f.service.authorize,
+    clock: s.f.clock,
+    policy: {
+      approved: true, version: "fixture-guest-case",
+      deletionDelayMs: 0, financialRetentionMs: 0, safetyRetentionMs: 0,
+      operationalRetentionMs: 0, telemetryRetentionMs: 0, authenticationRetentionMs: 0,
+    },
+  });
+  await privacy.request(s.f.customer, { confirm: true }, "guest-case-account-close");
+  assert.equal((await privacy.run()).erased, 0);
+  const deletion = () => s.f.db.sqlite.prepare("SELECT wait_reason FROM mp_privacy_deletions WHERE user_id=?").get(s.f.customer.id).wait_reason;
+  assert.equal(deletion(), "GUEST_REPORT_WINDOW");
+  assert.equal((await s.guest({ action: "report", category: "conduct" }, { scope, cookie: reportCookie })).status, 200);
+  s.advance(s.expiresAt + 3_600_000 - s.f.clock() + 1);
+  assert.equal((await privacy.run()).erased, 0);
+  assert.equal(deletion(), "OPEN_SAFETY_CASE");
 });

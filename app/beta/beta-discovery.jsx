@@ -12,6 +12,7 @@ import {
 import { BETA_PRICE_POLICY } from "../../lib/marketplace/pricing.mjs";
 import { ReviewScores, WrittenReviews } from "./beta-additions";
 import { human, money } from "./beta-api.mjs";
+import HostIntroduction from "./beta-host-introduction";
 import { ScheduledChooser } from "./beta-schedule";
 
 const rates = Object.entries(BETA_PRICE_POLICY.prices);
@@ -36,24 +37,6 @@ function HostPortrait({ host }) {
       width={160}
       height={160}
     />
-  );
-}
-
-function HostIntroduction({ intro }) {
-  if (!intro) return null;
-  const src = "/api/marketplace/media?id=" + encodeURIComponent(intro.id);
-  return (
-    <section className="beta-introduction" aria-label="Host introduction">
-      {intro.content_type.startsWith("video/") ? (
-        <video controls preload="none" src={src} aria-label="Host introduction video" />
-      ) : (
-        <audio controls preload="none" src={src} aria-label="Host introduction audio" />
-      )}
-      <details>
-        <summary>Read the introduction</summary>
-        <p>{intro.transcript}</p>
-      </details>
-    </section>
   );
 }
 
@@ -257,6 +240,7 @@ export default function BetaHostDiscovery({
   const [draft, setDraft] = useState({ duration: preferences.duration, format: preferences.format, max: 0 });
   const heading = useRef(null);
   const searchForm = useRef(null);
+  const futureControl = useRef(null);
   const profileRequest = useRef({ version: 0 });
   const schedule = { api, run, busy, revision };
   const sessionPrice = BETA_PRICE_POLICY.prices[preferences.duration];
@@ -297,6 +281,14 @@ export default function BetaHostDiscovery({
     search("");
     searchForm.current?.focus();
   }
+  function checkFutureFromEmpty() {
+    selectPeriod("later");
+    futureControl.current?.focus();
+  }
+  function retrySearch() {
+    search(query);
+    searchForm.current?.focus();
+  }
   function showProfile(host, immediate) {
     profileRequest.current.version++;
     setProfileMessage(null);
@@ -324,7 +316,7 @@ export default function BetaHostDiscovery({
         Find someone to talk to
       </h2>
       <div className="beta-card beta-discovery-controls">
-        <form onSubmit={submitSearch}>
+        <form role="search" aria-label="Find a host" onSubmit={submitSearch}>
           <label>
             Search by host name or topic
             <input
@@ -364,6 +356,7 @@ export default function BetaHostDiscovery({
               key={id}
               type="button"
               className="beta-secondary"
+              ref={id === "later" ? futureControl : undefined}
               aria-pressed={period === id}
               onClick={() => selectPeriod(id)}
             >
@@ -398,7 +391,12 @@ export default function BetaHostDiscovery({
         />
       ) : (
         <>
-          {error && <p className="beta-alert" role="alert">{error}</p>}
+          {error && (
+            <div className="beta-alert">
+              <p role="alert">{error}</p>
+              <button className="beta-secondary" type="button" onClick={retrySearch}>Retry search</button>
+            </div>
+          )}
           <p role="status" className="beta-small">
             {searching ? "Checking host availability…" : hosts && `${hosts.length} available ${hosts.length === 1 ? "host" : "hosts"}`}
           </p>
@@ -406,11 +404,11 @@ export default function BetaHostDiscovery({
             <div className="beta-card">
               <h3>No available hosts fit these choices</h3>
               <p>Keep {languageName(preferences.language)} and check for future times, or change your search.</p>
-              <button className="beta-secondary" type="button" onClick={() => selectPeriod("later")}>Check future times</button>
-              <button className="beta-text" type="button" onClick={() => search(query)}>Check again</button>
+              <button className="beta-secondary" type="button" onClick={checkFutureFromEmpty}>Check future times</button>
+              <button className="beta-text" type="button" onClick={retrySearch}>Check again</button>
             </div>
           )}
-          <div className="beta-host-grid">
+          <div className="beta-host-grid" aria-busy={searching}>
             {hosts?.map((host) => (
               <ResultCard
                 key={host.user_id}

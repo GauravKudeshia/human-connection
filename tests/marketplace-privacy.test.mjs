@@ -283,6 +283,7 @@ test("host closure hides availability, purges private media and tombstones ident
   t.after(() => f.db.close());
   const { bookingId, paymentId } = f.booking("COMPLETED", "CAPTURED");
   const media = f.intro();
+  f.db.sqlite.prepare("INSERT INTO mp_intro_captions VALUES(?, 'en', 'WEBVTT fixture')").run(media.introId);
   f.db.sqlite
     .prepare("INSERT INTO mp_host_verifications VALUES(?,?,?,?,?,?,?)")
     .run(f.host.id, "VERIFIED", "vs_private", 1, "US", "ELIGIBLE", start);
@@ -325,6 +326,7 @@ test("host closure hides availability, purges private media and tombstones ident
   );
   const result = await f.service.run();
   assert.equal(result.erased, 1);
+  assert.equal(f.db.sqlite.prepare("SELECT COUNT(*) n FROM mp_intro_captions WHERE intro_id=?").get(media.introId).n, 0);
   assert.equal(f.objects.size, 0);
   assert.deepEqual(f.deletes, [media.key]);
   assert.equal(

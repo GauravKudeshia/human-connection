@@ -823,6 +823,13 @@
 .beta-host-result h3 {
   margin-top: 0;
 }
+.beta-host-result h3,
+.beta-host-profile h2,
+.beta-host-profile h3,
+.beta-discovery .beta-actions button,
+.beta-host-booking > button {
+  overflow-wrap: anywhere;
+}
 .beta-host-result .beta-profile-photo {
   width: 5.5rem;
   height: 5.5rem;
@@ -877,6 +884,11 @@
 .beta-host-profile .beta-introduction :is(audio, video) {
   display: block;
   max-width: 100%;
+}
+.beta-introduction summary {
+  padding-block: 0.6rem;
+  min-height: 44px;
+  cursor: pointer;
 }
 @media (max-width: 650px) {
   .beta-discovery-controls,

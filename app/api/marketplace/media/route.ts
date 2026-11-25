@@ -50,7 +50,7 @@ export async function GET(request: Request) {
     const media =
       params.get("kind") === "photo"
         ? await value.experience.photo(value.actor, params.get("id"))
-        : await value.onboarding.media(value.actor, params.get("id"));
+        : await value.onboarding.media(value.actor, params.get("id"), params.get("kind") === "captions");
     if (params.get("metadata") === "1")
       return Response.json(
         {
@@ -148,6 +148,7 @@ export async function POST(request: Request) {
       transcript: body.transcript,
       consent: body.consent,
       durationSeconds: body.durationSeconds,
+      captions: body.captions,
       altText: body.altText,
     };
     const result =
