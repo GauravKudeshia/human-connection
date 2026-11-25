@@ -151,7 +151,7 @@ export default function InviteFriend({ booking, now, busy, act }) {
       {status === "GUEST_OPENED" && (
         <>
           <p>
-            Guest preview for adults in the United States. Join the existing
+            Guest preview for adults 18 and older. Join the existing
             session at no additional cost. Keep the conversation platonic,
             respectful and free of recording.
           </p>
@@ -161,13 +161,13 @@ export default function InviteFriend({ booking, now, busy, act }) {
               checked={consent}
               onChange={(event) => setConsent(event.target.checked)}
             />{" "}
-            I am 18 or older, in the United States, and accept these demo terms.
+            I am 18 or older and accept these demo terms.
           </label>
           <button
             type="button"
             className="secondary"
             disabled={busy || !live || !consent}
-            onClick={() => run("invite-guest-consent", { adult: true, us: true, terms: true })}
+            onClick={() => run("invite-guest-consent", { adult: true, terms: true })}
           >
             Guest: Enter waiting room
           </button>

@@ -71,13 +71,9 @@ export function EligibilityFields({ value, onChange }) {
   return (
     <fieldset className="eligibility">
       <legend>Before your first demo moment</legend>
-      <p>
-        For the proposed adults-only, U.S. service. Use fictional details
-        throughout this preview.
-      </p>
+      <p>Use fictional details throughout this adults-only demo.</p>
       {[
         ["adult", "I am 18 or older."],
-        ["us", "I am currently in the United States."],
         [
           "terms",
           "I understand this is a platonic entertainment demo, not therapy, dating or crisis care. No real payment or call will occur.",
@@ -96,7 +92,7 @@ export function EligibilityFields({ value, onChange }) {
   );
 }
 export function EligibilityDialog({ close, busy, onReady }) {
-  const [value, setValue] = useState({ adult: false, us: false, terms: false });
+  const [value, setValue] = useState({ adult: false, terms: false });
   return (
     <Modal title="Before your first moment" close={close}>
       <form

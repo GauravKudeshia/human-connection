@@ -84,8 +84,8 @@ export default function AppModal({
           </div>
           <h3>Conversations, with clear boundaries</h3>
           <p>
-            The proposed service is platonic, for adults 18+ in the U.S. Hosts
-            are friendly company, not therapists or crisis professionals.
+            The demo offers platonic entertainment for adults 18 and older.
+            The proposed live service is for adults in the U.S.
           </p>
           <h3>You stay in control</h3>
           <p>

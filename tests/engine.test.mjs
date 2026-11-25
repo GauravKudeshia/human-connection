@@ -47,7 +47,7 @@ function issueInvite(r, bookingId, time = start) {
   r.run("invite-host-approve", { bookingId }, time);
   return r.run("invite-issue", { bookingId }, time, "issue-demo-link");
 }
-const guestTerms = { adult: true, us: true, terms: true };
+const guestTerms = { adult: true, terms: true };
 
 test("demo guest entry requires paid live state, host approval, link, guest terms and customer admission in order", () => {
   const r = runner();
@@ -74,6 +74,10 @@ test("demo guest entry requires paid live state, host approval, link, guest term
   r.run("invite-guest-open", { ...room, token: invitationToken });
   assert.throws(() => r.run("invite-guest-open", { ...room, token: invitationToken }), /current invitation step/);
   assert.throws(() => r.run("invite-admit", room), /current invitation step/);
+  assert.throws(
+    () => r.run("invite-guest-consent", { ...room, ...guestTerms, adult: false }),
+    /Confirm the demo guest/,
+  );
   assert.throws(
     () => r.run("invite-guest-consent", { ...room, ...guestTerms, terms: false }),
     /Confirm the demo guest/,
@@ -219,13 +223,22 @@ function balance(s) {
       0,
     );
 }
-test("eligibility gates booking and malformed confirmations", () => {
+test("demo booking requires age and terms and accepts location-free and legacy confirmations", () => {
   const r = runner();
   assert.throws(() => r.run("hold", { hostId: "maya" }), /eligibility/);
   assert.throws(
-    () => r.run("eligibility", { adult: true, us: false, terms: true }),
-    /Confirm adult/,
+    () => r.run("eligibility", { adult: false, terms: true }),
+    /Confirm you are 18/,
   );
+  assert.throws(
+    () => r.run("eligibility", { adult: true, terms: false }),
+    /accept the demo terms/,
+  );
+  r.run("eligibility", { adult: true, terms: true });
+  assert.equal(r.s.eligible, true);
+  const legacy = runner();
+  legacy.run("eligibility", { adult: true, us: true, terms: true });
+  assert.equal(legacy.s.eligible, true);
 });
 test("T01 host exclusivity in serialized state; existing claim is unavailable", () => {
   const r = runner();
