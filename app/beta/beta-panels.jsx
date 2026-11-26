@@ -9,7 +9,9 @@ import {
   readHostLanguages,
 } from "../../lib/conversation-languages.mjs";
 import { BETA_PRICE_POLICY } from "../../lib/marketplace/pricing.mjs";
+import { maxIntroCaptionBytes } from "../../lib/marketplace/intro-captions.mjs";
 import { human, money } from "./beta-api.mjs";
+import HostIntroduction from "./beta-host-introduction";
 import {
   HostQuality,
   ProfilePhotoUpload,
@@ -18,53 +20,11 @@ import {
   PrivacyReview,
 } from "./beta-additions";
 
-export function useResource(
-  api,
-  resource,
-  id,
-  revision,
-  filters,
-  pollInterval = 8000,
-) {
-  const [snapshot, setSnapshot] = useState({ key: null, data: null, error: "" });
-  const filterKey = JSON.stringify(filters || {});
-  const resourceKey = resource + "|" + (id || "") + "|" + filterKey;
-  useEffect(() => {
-    let current = true;
-    let timer;
-    async function load() {
-      try {
-        const result = await api.read(resource, id, JSON.parse(filterKey));
-        if (current)
-          setSnapshot({ key: resourceKey, data: result, error: "" });
-      } catch (issue) {
-        if (current)
-          setSnapshot((previous) => ({
-            key: resourceKey,
-            // A temporary polling failure should not unmount an active call.
-            data:
-              previous.key === resourceKey &&
-              (!issue.status || issue.status >= 500 || issue.status === 429)
-                ? previous.data
-                : null,
-            error: issue.message,
-          }));
-      } finally {
-        if (current && pollInterval > 0) timer = setTimeout(load, pollInterval);
-      }
-    }
-    void load();
-    return () => {
-      current = false;
-      clearTimeout(timer);
-    };
-  }, [api, resource, id, revision, filterKey, resourceKey, pollInterval]);
-  return {
-    data: snapshot.key === resourceKey ? snapshot.data : null,
-    error: snapshot.key === resourceKey ? snapshot.error : "",
-    loading: snapshot.key !== resourceKey,
-  };
-}
+import { useResource } from "./beta-resource";
+import { HostSchedule, ScheduledReservations } from "./beta-schedule";
+
+export { useResource } from "./beta-resource";
+
 export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
   const available = me.hostAvailable === true;
   const {
@@ -101,6 +61,7 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
   const [uploadNotice, setUploadNotice] = useState("");
   const [transcript, setTranscript] = useState("");
   const [consent, setConsent] = useState(false);
+  const introSubmission = useRef(null);
   const [appeal, setAppeal] = useState("");
   const isHost = me.roles.includes("host");
   const approved = isHost && application?.status === "APPROVED";
@@ -122,14 +83,18 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
   }
   async function upload(event) {
     event.preventDefault();
-    const file = event.currentTarget.elements.clip.files[0];
-    const durationSeconds = Number(event.currentTarget.elements.duration.value);
+    const form = event.currentTarget;
+    const file = form.elements.clip.files[0];
+    const durationSeconds = Number(form.elements.duration.value);
+    const captionFile = form.elements.captions.files[0];
+    const captionLanguage = normalizeLanguageTag(form.elements.captionLanguage.value);
     if (
       !file ||
       file.size > 8 * 1024 * 1024 ||
       ![
         "audio/mpeg",
         "audio/mp4",
+        "audio/ogg",
         "audio/webm",
         "video/mp4",
         "video/webm",
@@ -138,8 +103,17 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
       setUploadError("Choose a supported audio or video clip under 8 MB.");
       return;
     }
+    if (captionFile && (!file.type.startsWith("video/") || !captionLanguage || captionFile.size > maxIntroCaptionBytes)) {
+      setUploadError("For video captions, choose a WebVTT file under 16 KiB and enter its language code.");
+      return;
+    }
+    const fields = [file, captionFile, captionLanguage, durationSeconds, transcript, consent];
+    const previous = introSubmission.current;
+    const key = previous?.fields.every((value, index) => value === fields[index]) ? previous.key : crypto.randomUUID();
+    introSubmission.current = { key, fields };
     setUploading(true);
     setUploadError("");
+    setUploadNotice("");
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       let binary = "";
@@ -148,20 +122,27 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
       const response = await fetch("/api/marketplace/media", {
         method: "POST",
         credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": key },
         body: JSON.stringify({
           contentType: file.type,
           transcript,
           consent,
           durationSeconds,
           base64: btoa(binary),
+          ...(captionFile ? { captions: { language: captionLanguage, text: await captionFile.text() } } : {}),
         }),
       });
       const body = await response.json();
+      if (body.error?.code === "UPLOAD_FAILED" || body.result?.status === "FAILED") {
+        introSubmission.current = null;
+        throw new Error("The introduction could not be stored. Try the upload again.");
+      }
       if (!response.ok)
         throw new Error(
           body.error?.message || "Your introduction could not be uploaded.",
         );
+      introSubmission.current = null;
+      form.reset();
       setConsent(false);
       setTranscript("");
       setUploadNotice("Your introduction is submitted for review.");
@@ -232,6 +213,19 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
           )}
         </section>
       )}
+      {approved && (
+        <>
+          <ScheduledReservations
+            api={api}
+            run={run}
+            busy={busy}
+            revision={revision}
+            onSelect={onSelect}
+            hostView
+          />
+          <HostSchedule api={api} run={run} busy={busy} revision={revision} />
+        </>
+      )}
       {earnings && (
         <div className="beta-card">
           <h2>Recorded earnings</h2>
@@ -247,9 +241,9 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
       )}
       {isHost && <HostQuality api={api} revision={revision} />}
       {approved && (
-        <HostLanguageSettings
-          key={application.languages}
-          value={application.languages}
+        <HostProfileSettings
+          api={api}
+          profile={application}
           busy={busy}
           run={run}
         />
@@ -305,7 +299,7 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
               <input
                 name="clip"
                 type="file"
-                accept="audio/mpeg,audio/mp4,audio/webm,video/mp4,video/webm"
+                accept="audio/mpeg,audio/mp4,audio/ogg,audio/webm,video/mp4,video/webm"
                 required
               />
             </label>
@@ -328,6 +322,20 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
                 required
               />
             </label>
+            <fieldset>
+              <legend>Video captions</legend>
+              <p className="beta-small">Guests can play a video after its timed captions pass review. An approved video without captions is shown as text.</p>
+              <div className="beta-form-grid">
+                <label>
+                  WebVTT caption file
+                  <input type="file" name="captions" accept=".vtt,text/vtt" />
+                </label>
+                <label>
+                  Caption language code
+                  <input type="text" name="captionLanguage" placeholder="en or hi" maxLength={64} />
+                </label>
+              </div>
+            </fieldset>
             <label className="beta-checkbox">
               <input
                 type="checkbox"
@@ -335,8 +343,8 @@ export function HostWorkspace({ api, run, busy, revision, me, onSelect }) {
                 onChange={(event) => setConsent(event.target.checked)}
               />
               <span>
-                I created or am authorized to publish this clip and consent to
-                its use on my host profile after approval.
+                I created this introduction or have permission to publish it. I consent to using the clip,
+                transcript and any captions on my host profile after approval.
               </span>
             </label>
             <button
@@ -568,25 +576,145 @@ function LanguageFields({ languages, onChange, disabled }) {
   );
 }
 
-function HostLanguageSettings({ value, busy, run }) {
-  const [languages, setLanguages] = useState(() => readHostLanguages(value));
+function HostProfileFields({ name, setName, bio, setBio, topics, setTopics }) {
+  return (
+    <>
+      <div className="beta-form-grid">
+        <label>
+          Public display name
+          <input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required />
+        </label>
+        <label>
+          Biography
+          <textarea value={bio} onChange={(event) => setBio(event.target.value)} maxLength={1000} required />
+        </label>
+      </div>
+      <label>
+        Conversation topics (optional)
+        <input value={topics} onChange={(event) => setTopics(event.target.value)} maxLength={335} />
+        <span className="beta-small">Separate up to eight topics with commas. Keep each topic to 40 characters.</span>
+      </label>
+    </>
+  );
+}
+
+function HostStyleFields({ styles, onChange }) {
+  return (
+    <fieldset>
+      <legend>Conversation styles</legend>
+      <div className="beta-form-grid">
+        {experiences.map((experience) => (
+          <div key={experience.id}>
+            <h4>{experience.name}</h4>
+            {stylesFor(experience.id).map((style) => (
+              <label className="beta-checkbox" key={style.id}>
+                <input type="checkbox" checked={styles.includes(style.id)} onChange={() => onChange(toggleChoice(styles, style.id))} />
+                {style.name}
+              </label>
+            ))}
+          </div>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function HostFormatFields({ formats, onChange }) {
+  return (
+    <fieldset>
+      <legend>Formats you offer</legend>
+      {["audio", "video"].map((format) => (
+        <label className="beta-checkbox" key={format}>
+          <input type="checkbox" checked={formats.includes(format)} onChange={() => onChange(toggleChoice(formats, format))} />
+          {human(format)}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+const toggleChoice = (list, item) =>
+  list.includes(item) ? list.filter((value) => value !== item) : [...list, item];
+const splitTopics = (value) => value.split(",").map((topic) => topic.trim()).filter(Boolean);
+
+function HostProfileSettings({ api, profile, busy, run }) {
+  const [name, setName] = useState(profile.display_name);
+  const [bio, setBio] = useState(profile.biography);
+  const [topics, setTopics] = useState(() => applicationChoices(null, profile.interests, []).join(", "));
+  const [languages, setLanguages] = useState(() => readHostLanguages(profile.languages));
+  const [formats, setFormats] = useState(() => applicationChoices(null, profile.formats, []));
+  const [styles, setStyles] = useState(() => applicationChoices(null, profile.styles, []));
+  const [version, setVersion] = useState(profile.updated_at);
+  const [requiresReload, setRequiresReload] = useState(false);
+  const [reloading, setReloading] = useState(false);
+  const [reloadError, setReloadError] = useState("");
+  const conflict = requiresReload || profile.updated_at > version;
+  async function loadLatest() {
+    setReloading(true);
+    setReloadError("");
+    try {
+      const latest = await api.read("application");
+      if (latest?.status !== "APPROVED" || latest.updated_at <= version)
+        throw new Error("The updated profile could not be loaded. Try again.");
+      setName(latest.display_name);
+      setBio(latest.biography);
+      setTopics(applicationChoices(null, latest.interests, []).join(", "));
+      setLanguages(readHostLanguages(latest.languages));
+      setFormats(applicationChoices(null, latest.formats, []));
+      setStyles(applicationChoices(null, latest.styles, []));
+      setVersion(latest.updated_at);
+      setRequiresReload(false);
+    } catch (issue) {
+      setReloadError(issue.message);
+    } finally {
+      setReloading(false);
+    }
+  }
   return (
     <form
       className="beta-card"
-      onSubmit={(event) => {
+      onSubmit={async (event) => {
         event.preventDefault();
-        run(
-          "host-languages",
-          { languages },
-          "Your conversation languages were updated.",
+        if (conflict || reloading) return;
+        const result = await run(
+          "host-profile-edit",
+          {
+            displayName: name, biography: bio, interests: splitTopics(topics),
+            languages, formats, styles, version,
+          },
+          "Your host profile was updated.",
+          {
+            onError(issue) {
+              if (issue.code !== "PROFILE_CHANGED") return false;
+              setRequiresReload(true);
+              return true;
+            },
+          },
         );
+        if (result?.saved) setVersion(result.version);
       }}
     >
-      <h2>Conversation languages</h2>
-      <LanguageFields languages={languages} onChange={setLanguages} disabled={busy} />
-      <button className="beta-primary" disabled={busy || !languages.length}>
-        Save conversation languages
-      </button>
+      <h2>Edit your host profile</h2>
+      <p>These details help guests decide whether your conversations are a good fit.</p>
+      {conflict && (
+        <div className="beta-notice">
+          <p role="status">The saved profile changed. Your unsaved edits are still here. Loading the latest profile will replace the fields below.</p>
+          <button type="button" className="beta-secondary" disabled={busy || reloading} onClick={loadLatest}>
+            {reloading ? "Loading profile…" : "Load latest profile"}
+          </button>
+          {reloadError && <p role="alert">{reloadError}</p>}
+        </div>
+      )}
+      <fieldset disabled={busy || reloading}>
+        <legend>Public host details</legend>
+        <HostProfileFields {...{ name, setName, bio, setBio, topics, setTopics }} />
+        <LanguageFields languages={languages} onChange={setLanguages} disabled={busy} />
+        <HostFormatFields formats={formats} onChange={setFormats} />
+        <HostStyleFields styles={styles} onChange={setStyles} />
+        <button className="beta-primary" disabled={conflict || !languages.length || !formats.length}>
+          Save profile
+        </button>
+      </fieldset>
     </form>
   );
 }
@@ -633,6 +761,9 @@ function HostApplication({ run, busy, application, draft, hasDraft }) {
     draft?.displayName ?? application?.display_name ?? "",
   );
   const [bio, setBio] = useState(draft?.biography ?? application?.biography ?? "");
+  const [topics, setTopics] = useState(() =>
+    applicationChoices(draft?.interests, application?.interests, []).join(", "),
+  );
   const [languages, setLanguages] = useState(() =>
     readHostLanguages(draft?.languages ?? application?.languages ?? []),
   );
@@ -653,7 +784,7 @@ function HostApplication({ run, busy, application, draft, hasDraft }) {
     heading.current?.focus();
   }, [step]);
 
-  const choices = { displayName: name, biography: bio, languages, formats, styles };
+  const choices = { displayName: name, biography: bio, interests: splitTopics(topics), languages, formats, styles };
   const complete = [
     ageConfirmed,
     Boolean(name.trim() && bio.trim()),
@@ -664,10 +795,6 @@ function HostApplication({ run, busy, application, draft, hasDraft }) {
     true,
   ];
   const lastStep = applicationSteps.length - 1;
-  const toggle = (list, item) =>
-    list.includes(item)
-      ? list.filter((value) => value !== item)
-      : [...list, item];
 
   const locked = busy || submitted;
   async function advance(event) {
@@ -725,47 +852,9 @@ function HostApplication({ run, busy, application, draft, hasDraft }) {
       )}
       {step === 1 && (
         <>
-          <div className="beta-form-grid">
-            <label>
-              Public display name
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                maxLength={100}
-                required
-              />
-            </label>
-            <label>
-              Biography
-              <textarea
-                value={bio}
-                onChange={(event) => setBio(event.target.value)}
-                maxLength={1000}
-                required
-              />
-            </label>
-          </div>
+          <HostProfileFields {...{ name, setName, bio, setBio, topics, setTopics }} />
           <p className="beta-small">After submitting, upload a profile photo and short introduction from your host studio.</p>
-          <fieldset>
-            <legend>Conversation style interests</legend>
-            <div className="beta-form-grid">
-              {experiences.map((experience) => (
-                <div key={experience.id}>
-                  <h4>{experience.name}</h4>
-                  {stylesFor(experience.id).map((style) => (
-                    <label className="beta-checkbox" key={style.id}>
-                      <input
-                        type="checkbox"
-                        checked={styles.includes(style.id)}
-                        onChange={() => setStyles(toggle(styles, style.id))}
-                      />
-                      {style.name}
-                    </label>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </fieldset>
+          <HostStyleFields styles={styles} onChange={setStyles} />
         </>
       )}
       {step === 2 && (
@@ -774,19 +863,7 @@ function HostApplication({ run, busy, application, draft, hasDraft }) {
       {step === 3 && (
         <>
           <p>Choose at least one format. Once approved, use the availability switch in your studio to receive immediate requests.</p>
-          <fieldset>
-            <legend>Formats you offer</legend>
-            {["audio", "video"].map((format) => (
-              <label className="beta-checkbox" key={format}>
-                <input
-                  type="checkbox"
-                  checked={formats.includes(format)}
-                  onChange={() => setFormats(toggle(formats, format))}
-                />
-                {human(format)}
-              </label>
-            ))}
-          </fieldset>
+          <HostFormatFields formats={formats} onChange={setFormats} />
         </>
       )}
       {step === 4 && (
@@ -818,6 +895,12 @@ function HostApplication({ run, busy, application, draft, hasDraft }) {
           <dd className="beta-wrap">{name}</dd>
           <dt>Biography</dt>
           <dd className="beta-wrap">{bio}</dd>
+          {choices.interests.length > 0 && (
+            <>
+              <dt>Conversation topics</dt>
+              <dd className="beta-wrap">{choices.interests.join(", ")}</dd>
+            </>
+          )}
           <dt>Languages</dt>
           <dd>{languages.map(({ tag }) => languageName(tag)).join(" · ")}</dd>
           <dt>Formats</dt>
@@ -856,6 +939,61 @@ function HostApplication({ run, busy, application, draft, hasDraft }) {
     </form>
   );
 }
+function GuestReport({ record, run, busy }) {
+  const [disposition, setDisposition] = useState("reviewed");
+  const bookingId = record.booking_id;
+  return (
+    <article className="beta-card">
+      <h2>{human(record.category)}</h2>
+      <p>Sandbox guest report · {new Date(record.createdAt).toLocaleString()}</p>
+      <p className="beta-small">Booking {bookingId}</p>
+      <p className="beta-small">
+        {record.status === "ESCALATED" ? "Follow-up required" : record.status === "ASSIGNED" && record.assignedToMe
+          ? "Assigned to you"
+          : human(record.status)}
+        {record.disposition ? ` · ${record.disposition.replaceAll("-", " ")}` : ""}
+      </p>
+      {record.status === "OPEN" && (
+        <button
+          className="beta-secondary"
+          disabled={busy}
+          onClick={() => run("demo-guest-report-assign", { bookingId }, "Guest report assigned to you.")}
+        >
+          Assign to me
+        </button>
+      )}
+      {record.canReassign && (
+        <button
+          className="beta-secondary"
+          disabled={busy}
+          onClick={() => run("demo-guest-report-reassign", { bookingId, assignedAt: record.assignedAt }, "Guest report reassigned to you.")}
+        >
+          Take over report
+        </button>
+      )}
+      {["ASSIGNED", "ESCALATED"].includes(record.status) && record.assignedToMe && (
+        <form onSubmit={(event) => {
+          event.preventDefault();
+          run(
+            "demo-guest-report-resolve",
+            { bookingId, disposition },
+            disposition === "reviewed" ? "Guest report closed." : "Guest report marked for follow-up.",
+          );
+        }}>
+          <label>
+            Review outcome
+            <select value={disposition} onChange={(event) => setDisposition(event.target.value)}>
+              <option value="reviewed">Reviewed and ready to close</option>
+              <option value="follow-up-required">Keep open for follow-up</option>
+            </select>
+          </label>
+          <button className="beta-primary" disabled={busy}>Record outcome</button>
+        </form>
+      )}
+    </article>
+  );
+}
+
 export function OperationsWorkspace({ api, run, busy, revision, roles }) {
   const tabs = [];
   if (roles.some((role) => ["host_reviewer", "admin"].includes(role)))
@@ -870,6 +1008,7 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
   if (roles.some((role) => ["safety", "admin"].includes(role)))
     tabs.push(
       ["safety", "Safety"],
+      ["demo-guest-reports", "Guest test reports"],
       ["safety-history", "Closed cases"],
       ["accounts", "Account status"],
       ["alerts", "Operational alerts"],
@@ -896,7 +1035,7 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
   const resource = tabs.some(([key]) => key === selected)
     ? selected
     : tabs[0]?.[0];
-  const isSafety = resource === "safety" || resource === "safety-history";
+  const isSafety = ["safety", "safety-history", "demo-guest-reports"].includes(resource);
   const isWrittenReview =
     resource === "review-moderation" || resource === "review-published";
   const isPaged = isSafety || isWrittenReview;
@@ -1028,6 +1167,8 @@ export function OperationsWorkspace({ api, run, busy, revision, roles }) {
               run={run}
               busy={busy}
             />
+          ) : resource === "demo-guest-reports" ? (
+            <GuestReport key={record.booking_id} record={record} run={run} busy={busy} />
           ) : resource === "photos" ? (
             <PhotoReview
               key={record.id}
@@ -1118,6 +1259,7 @@ function StaffRecord({ resource, record, run, busy }) {
     new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10),
   );
   const [durationConfirmed, setDurationConfirmed] = useState(false);
+  const [captionsConfirmed, setCaptionsConfirmed] = useState(false);
   const [identityReference, setIdentityReference] = useState("");
   const [payoutReference, setPayoutReference] = useState("");
   const [certificationStatus, setCertificationStatus] = useState("APPROVED");
@@ -1192,7 +1334,7 @@ function StaffRecord({ resource, record, run, busy }) {
     if (resource === "intros")
       return run(
         "host-intro-review",
-        { introId: record.id, decision: status, reason, durationConfirmed },
+        { introId: record.id, decision: status, reason, durationConfirmed, captionsConfirmed },
         "Introduction review saved.",
       );
     return run(
@@ -1238,22 +1380,12 @@ function StaffRecord({ resource, record, run, busy }) {
           . Matching also requires current eligibility and a recent heartbeat.
         </p>
       )}
-      <p>
-        {record.biography ||
-          record.narrative ||
-          record.reason ||
-          record.transcript}
-      </p>
+      {resource !== "intros" && (
+        <p>{record.biography || record.narrative || record.reason || record.transcript}</p>
+      )}
       {resource === "intros" && (
         <>
-          <video
-            className="beta-intro-player"
-            controls
-            preload="none"
-            src={"/api/marketplace/media?id=" + encodeURIComponent(record.id)}
-            aria-label="Introduction awaiting review"
-          />
-          <p className="beta-small">{record.transcript}</p>
+          <HostIntroduction intro={record} review />
           <label className="beta-checkbox">
             <input
               type="checkbox"
@@ -1262,6 +1394,18 @@ function StaffRecord({ resource, record, run, busy }) {
             />
             I played this clip and confirmed its 15–30-second duration.
           </label>
+          {record.caption_language ? (
+            <label className="beta-checkbox">
+              <input
+                type="checkbox"
+                checked={captionsConfirmed}
+                onChange={(event) => setCaptionsConfirmed(event.target.checked)}
+              />
+              The spoken audio and relevant sounds match the timed captions.
+            </label>
+          ) : record.content_type.startsWith("video/") && (
+            <p className="beta-small">Approval makes the transcript visible on the host profile. Video playback requires reviewed captions.</p>
+          )}
         </>
       )}
       {decisions.length > 0 && (
@@ -1303,7 +1447,7 @@ function StaffRecord({ resource, record, run, busy }) {
                   status === record.status ||
                   (resource === "intros" &&
                     status === "APPROVED" &&
-                    !durationConfirmed)
+                    (!durationConfirmed || (record.caption_language && !captionsConfirmed)))
                 }
                 onClick={() => decide(status)}
               >

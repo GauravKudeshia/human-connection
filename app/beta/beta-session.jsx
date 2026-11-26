@@ -3,11 +3,13 @@ import React, { useEffect, useRef, useState } from "react";
 import { activities, activityRounds } from "../../lib/activities.mjs";
 import {
   bookableExperiences,
-  bookableStylesFor,
   experiences,
+  styleName,
+  stylesFor,
 } from "../../lib/catalog.mjs";
 import { human, money } from "./beta-api.mjs";
 import { useResource } from "./beta-panels";
+import BetaInvite from "./beta-invite";
 import { languageName } from "../../lib/conversation-languages.mjs";
 
 export default function BetaSession({
@@ -56,7 +58,7 @@ export default function BetaSession({
   );
   const canReuseChoices =
     canRepeatExperience &&
-    bookableStylesFor(booking.experience).some(({ id }) => id === quote?.style);
+    (!quote?.style || stylesFor(booking.experience).some(({ id }) => id === quote.style));
   const customer = booking?.customer_id === me.id;
   const inSession = ["READY", "LIVE"].includes(booking?.status);
   const terminal =
@@ -140,10 +142,14 @@ export default function BetaSession({
                     ?.name
                 }
               </h1>
+              {customer && booking.host_display_name && (
+                <p>With {booking.host_display_name}</p>
+              )}
               <p>
                 {booking.duration} minutes · {human(booking.format)} ·{" "}
                 {languageName(booking.language) || booking.language}
               </p>
+              {quote?.style && <p>{styleName(quote.style)}</p>}
             </div>
             <span className="beta-session-price">
               {money(booking.amount_cents)}
@@ -337,6 +343,16 @@ export default function BetaSession({
                 if (reporting) reportInput.current?.focus();
                 else setReporting(true);
               }}
+            />
+          )}
+          {booking.status === "LIVE" && publicConfig?.guestInvitationsEnabled === true && (
+            <BetaInvite
+              api={api}
+              run={run}
+              busy={busy}
+              booking={booking}
+              customer={customer}
+              revision={revision}
             />
           )}
           {terminal && (
@@ -794,6 +810,48 @@ function RemainingTime({ deadline }) {
     </span>
   );
 }
+function PrejoinCheck({ format, disabled }) {
+  const [checking, setChecking] = useState(false);
+  const [message, setMessage] = useState("");
+  async function checkDevices() {
+    if (checking) return;
+    if (!navigator.onLine) {
+      setMessage("Your browser reports it is offline. Connect to a network before joining.");
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMessage("Use a browser and connection that support microphone and camera permissions.");
+      return;
+    }
+    setChecking(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: format === "video",
+      });
+      stream.getTracks().forEach((track) => track.stop());
+      setMessage(format === "video"
+        ? "Your browser could access your microphone and camera. Room connectivity is checked when you join."
+        : "Your browser could access your microphone. Room connectivity is checked when you join.");
+    } catch (error) {
+      setMessage(error.name === "NotAllowedError"
+        ? "Device permission was declined. You can update permissions in your browser and retry."
+        : "A required device was unavailable. Check that it is connected and free to use.");
+    } finally {
+      setChecking(false);
+    }
+  }
+  return (
+    <div>
+      <button type="button" className="beta-secondary" disabled={checking || disabled} onClick={checkDevices}>
+        {checking ? "Checking device access…" : "Check my devices"}
+      </button>
+      <p className="beta-small">The check runs on this device and ends immediately. Joining opens a private sandbox room.</p>
+      <p className="beta-small" role="status">{message}</p>
+    </div>
+  );
+}
+
 function MediaSession({
   api,
   run,
@@ -965,6 +1023,7 @@ function MediaSession({
               ? "Joining uses your microphone. Your camera stays off."
               : "Your browser may ask for camera and microphone access."}
           </p>
+          <PrejoinCheck format={booking.format} disabled={busy} />
           <button className="beta-primary" disabled={busy} onClick={joinRoom}>
             {connection === "Disconnected" ? "Rejoin" : "Join"} private{" "}
             {booking.format} session

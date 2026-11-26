@@ -6,6 +6,7 @@ import {
   createBrowserAuth,
   browserAuthConfigured,
 } from "../../../../../lib/marketplace/browser-auth.mjs";
+import { guestInvitationsEnabled } from "../../../../../lib/marketplace/guest-invitations.mjs";
 
 async function handle(request: Request) {
   const operation = new URL(request.url).pathname.split("/").at(-1);
@@ -35,6 +36,7 @@ async function handle(request: Request) {
         authenticated: !!user,
         user,
         publicConfig: {
+          guestInvitationsEnabled: guestInvitationsEnabled(config),
           stripePublishableKey:
             typeof config.STRIPE_SANDBOX_PUBLISHABLE_KEY === "string" &&
             config.STRIPE_SANDBOX_PUBLISHABLE_KEY.startsWith("pk_test_")

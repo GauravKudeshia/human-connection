@@ -28,11 +28,15 @@ flowchart LR
 
 ## Data and transaction model
 
-Eight additive migrations in `db/marketplace-migrations.mjs` define users/roles; customer eligibility/policy history; host profiles, certifications, verification references, drafts, introductions/photos and appeals; presence; bookings/claims/events; payments/callbacks/refund awards/tips/fees/disputes/transfer references; rooms/attendance/timing; activities; reviews/favorites/blocks/reports/cases; journal/audit/notification/alert records; analytics observations; and privacy requests/holds/leases.
+The ordered additive migrations in `db/marketplace-migrations.mjs` define identity and policy history, host eligibility and profiles, booking and attendance, finance, reviews and guest rehearsal, reporting, analytics, and privacy operations. The V3 audit follow-up adds host topics, scheduling and guest safeguards to the previous ten-migration stack.
 
 Unique host/customer/booking claims plus atomic D1 batches arbitrate conflicting reservations. Eligibility is checked inside claim creation and acceptance. Active customer status also guards booking creation. Accepted quotes freeze integer-cent totals, version, expiry and base allocation. A declined/expired **unpaid** request can be replaced without changing server-owned preferences; attempted hosts are excluded and replacement replay is linked durably.
 
-D1 is retained because its prepared statements, constraints and atomic batch surface fit the current Worker. Actual SQLite transactions test invariants locally; Wrangler verifies the eight migrations against local D1. Those tests do not establish hosted contention, deployment limits or load behavior. Hosted D1 testing may justify a coordination primitive or another relational deployment; no speculative stack migration is introduced.
+D1's prepared statements, constraints and atomic batches support the current Worker. Local SQLite transactions test application invariants. Hosted contention, deployment limits and load behavior require separate measurements.
+
+Host Studio stores future blocks in UTC with the submitted IANA timezone. Eligible customers can reserve one slot, see its sandbox price and check in during the allowed window. The database checks overlap with other scheduled reservations and immediate holds. Check-in hands off to the existing request, acceptance and checkout workflow. An unpaid schedule creates no payment or media room.
+
+The guest preview uses its own disabled-by-default flag on the UI and API. Claim quotas use short-lived counters. The server signs replayable issue responses and persists digests. Terminal transitions remove browser bindings. The safety queue remains available to authorized staff while the preview is off. A reviewed retention policy governs resolved reports.
 
 ## Financial and delivery facts
 

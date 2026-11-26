@@ -87,6 +87,37 @@ test("Surprise Me treats past choices as weaker evidence and avoids styles with 
   });
 });
 
+test("Surprise Me can suggest an earlier compatible style without adding a starter choice", () => {
+  const history = [
+    { experience: "hear", style: "improv-games", status: "COMPLETED", rating: 5 },
+    { experience: "laugh", style: "improv-games", status: "COMPLETED", rating: 5 },
+  ];
+  assert.deepEqual(recommendStyle("laugh", history), {
+    style: "improv-games",
+    reason: "liked",
+  });
+  assert.deepEqual(recommendStyle("laugh", []), {
+    style: "funny-stories",
+    reason: "starter",
+  });
+  assert.equal(recommendStyle("hear", history).reason, "starter");
+});
+
+test("low comfort overrides positive quality and value feedback for Surprise Me", () => {
+  const history = [{
+    experience: "laugh",
+    style: "funny-stories",
+    status: "COMPLETED",
+    rating: 5,
+    worthIt: true,
+    comfortRating: 1,
+  }];
+  assert.deepEqual(recommendStyle("laugh", history), {
+    style: "playful-banter",
+    reason: "starter",
+  });
+});
+
 test("Surprise Me leaves the choice to the guest if every style has negative feedback", () => {
   const history = ["my-day", "just-listen"].map((style) => ({
     experience: "hear",

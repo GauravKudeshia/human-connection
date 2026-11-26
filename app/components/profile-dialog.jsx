@@ -48,7 +48,6 @@ export default function ProfileDialog({
   });
   const [consent, setConsent] = useState({
     adult: false,
-    us: false,
     terms: false,
   });
   const reviews = (s?.bookings || []).filter(

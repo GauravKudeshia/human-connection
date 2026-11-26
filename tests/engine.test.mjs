@@ -7,6 +7,7 @@ import {
   summarize,
 } from "../lib/engine.mjs";
 import { hosts } from "../lib/catalog.mjs";
+import { makeBrowserRequest } from "../pages/transport.mjs";
 const start = 1700000000000;
 function runner() {
   let s = initialState();
@@ -36,6 +37,179 @@ function paid(r) {
   r.run("checkout", { bookingId: id });
   return id;
 }
+function live(r) {
+  const bookingId = paid(r);
+  r.run("join", { bookingId });
+  return bookingId;
+}
+function issueInvite(r, bookingId, time = start) {
+  r.run("invite-request", { bookingId }, time);
+  r.run("invite-host-approve", { bookingId }, time);
+  return r.run("invite-issue", { bookingId }, time, "issue-demo-link");
+}
+const guestTerms = { adult: true, terms: true };
+
+test("demo guest entry requires paid live state, host approval, link, guest terms and customer admission in order", () => {
+  const r = runner();
+  const bookingId = paid(r);
+  const room = { bookingId };
+  assert.throws(() => r.run("invite-request", room), /active paid demo room/);
+  r.run("join", room);
+  const original = { ...r.s.bookings[0] };
+  r.run("invite-request", room);
+  for (const action of ["invite-request", "invite-issue", "invite-guest-join"])
+    assert.throws(() => r.run(action, room), /current invitation step/);
+  r.run("invite-host-approve", room);
+  const { invitationToken, expiresAt } = r.run("invite-issue", room, start, "issue");
+  assert.match(invitationToken, /^[0-9a-f]{48}$/);
+  assert.equal(expiresAt, start + 180_000);
+  assert(!JSON.stringify(r.s).includes(invitationToken));
+  assert(!JSON.stringify(summarize(r.s, start)).includes("tokenDigest"));
+  const replay = r.run("invite-issue", room, start + 1, "issue");
+  assert.deepEqual(replay, { invitationStatus: "ISSUED", expiresAt });
+  assert.throws(
+    () => r.run("invite-guest-open", { ...room, token: "a".repeat(48) }),
+    /does not belong/,
+  );
+  r.run("invite-guest-open", { ...room, token: invitationToken });
+  assert.throws(() => r.run("invite-guest-open", { ...room, token: invitationToken }), /current invitation step/);
+  assert.throws(() => r.run("invite-admit", room), /current invitation step/);
+  assert.throws(
+    () => r.run("invite-guest-consent", { ...room, ...guestTerms, adult: false }),
+    /Confirm the demo guest/,
+  );
+  assert.throws(
+    () => r.run("invite-guest-consent", { ...room, ...guestTerms, terms: false }),
+    /Confirm the demo guest/,
+  );
+  r.run("invite-guest-consent", { ...room, ...guestTerms });
+  assert.throws(() => r.run("invite-guest-join", room), /current invitation step/);
+  assert.throws(() => r.run("invite-guest-report", { ...room, reason: "Concern" }), /admitted guest/);
+  assert.equal(r.s.bookings[0].invitation.status, "GUEST_WAITING");
+  r.run("invite-admit", room, start + 3, "admit");
+  assert.deepEqual(r.run("invite-admit", room, start + 4, "admit"), { invitationStatus: "GUEST_ADMITTED" });
+  assert.throws(() => r.run("invite-admit", room), /current invitation step/);
+  r.run("invite-guest-join", room);
+  assert.throws(() => r.run("invite-guest-join", room), /current invitation step/);
+  const { caseId } = r.run("invite-guest-report", { ...room, reason: "Fictional demo concern" });
+  assert(r.s.reports.some((report) => report.id === caseId && report.fromDemoGuest));
+  for (const field of ["startedAt", "deadline", "totalCents", "payment"])
+    assert.equal(r.s.bookings[0][field], original[field]);
+  assert.equal(r.s.journals.length, 1);
+  assert.equal(r.s.bookings[0].invitation.status, "GUEST_CONNECTED");
+  r.run("complete-demo", room, start + 20_000);
+  assert.equal(r.s.bookings[0].invitation.status, "SESSION_ENDED");
+  assert.equal(r.s.journals.length, 2);
+  assert(r.s.journals.some(({ event, lines }) =>
+    event === "delivered:" + bookingId &&
+    lines.some(({ account, credit }) => account === "host_base_payable" && credit === 700),
+  ));
+});
+
+test("demo host and customer declines close the invitation without creating an extra participant", () => {
+  const host = runner();
+  const hostRoom = { bookingId: live(host) };
+  host.run("invite-request", hostRoom);
+  host.run("invite-host-decline", hostRoom);
+  assert.equal(host.s.bookings[0].invitation.status, "HOST_DECLINED");
+  assert.throws(() => host.run("invite-issue", hostRoom), /current invitation step/);
+
+  const customer = runner();
+  const room = { bookingId: live(customer) };
+  const { invitationToken } = issueInvite(customer, room.bookingId);
+  customer.run("invite-guest-open", { ...room, token: invitationToken });
+  customer.run("invite-guest-consent", { ...room, ...guestTerms });
+  customer.run("invite-customer-decline", room);
+  assert.equal(customer.s.bookings[0].invitation.status, "CUSTOMER_DECLINED");
+  assert.throws(() => customer.run("invite-guest-join", room), /current invitation step/);
+  assert.equal(customer.s.journals.length, 1);
+});
+
+test("demo link replacement, host withdrawal, and customer cancellation invalidate unused links", () => {
+  for (const revoke of ["invite-host-withdraw", "invite-cancel"]) {
+    const r = runner();
+    const room = { bookingId: live(r) };
+    const first = issueInvite(r, room.bookingId);
+    const second = r.run("invite-issue", room, start + 100);
+    assert.notEqual(second.invitationToken, first.invitationToken);
+    assert.equal(second.expiresAt, first.expiresAt);
+    assert.throws(
+      () => r.run("invite-guest-open", { ...room, token: first.invitationToken }, start + 100),
+      /does not belong/,
+    );
+    r.run(revoke, room, start + 120);
+    assert.equal(r.s.bookings[0].invitation.status, "REVOKED");
+    assert.throws(
+      () => r.run("invite-guest-open", { ...room, token: second.invitationToken }, start + 120),
+      /current invitation step/,
+    );
+  }
+});
+
+test("invite expiry, guest removal, and reconnect preserve the original session clock", () => {
+  const r = runner();
+  const room = { bookingId: live(r) };
+  const { invitationToken, expiresAt } = issueInvite(r, room.bookingId);
+  const deadline = r.s.bookings[0].deadline;
+  assert.equal(
+    summarize(r.s, expiresAt).bookings[0].invitation.status,
+    "EXPIRED",
+  );
+  assert.throws(
+    () => r.run("invite-guest-open", { ...room, token: invitationToken }, expiresAt),
+    /current invitation step/,
+  );
+  r.run("invite-guest-open", { ...room, token: invitationToken }, start + 500);
+  r.run("invite-guest-consent", { ...room, ...guestTerms }, start + 500);
+  r.run("invite-admit", room, start + 500);
+  r.run("invite-guest-join", room, start + 500);
+  r.run("invite-guest-disconnect", room, start + 600);
+  r.run("disconnect", room, start + 1000);
+  assert.throws(() => r.run("invite-guest-reconnect", room, start + 1100), /active paid demo room/);
+  r.run("reconnect", room, start + 1500);
+  r.run("invite-guest-reconnect", room, start + 1600);
+  assert.equal(r.s.bookings[0].invitation.status, "GUEST_CONNECTED");
+  r.run("invite-remove", room, start + 1700);
+  assert.equal(r.s.bookings[0].invitation.status, "GUEST_REMOVED");
+  assert.equal(r.s.bookings[0].deadline, deadline);
+  assert.throws(() => r.run("invite-guest-reconnect", room, start + 1800), /current invitation step/);
+  assert.throws(() => r.run("invite-guest-report", { ...room, reason: "Concern" }, start + 1800), /admitted guest/);
+  assert.equal(summarize(r.s, deadline).bookings[0].status, "PARTIAL_DELIVERY");
+});
+
+test("the demo transport rejects forwarded links in a separate workspace and serializes admission", async () => {
+  const request = makeBrowserRequest(null, "original", () => start);
+  const forwarded = makeBrowserRequest(null, "other", () => start);
+  const send = (transport, action, payload) =>
+    transport("/api/action", {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify({ action, payload }),
+    });
+  const perform = async (action, payload) => {
+    const response = await send(request, action, payload);
+    assert.equal(response.status, 200);
+    return (await response.json()).result;
+  };
+  await perform("eligibility", guestTerms);
+  const room = await perform("hold", {
+    hostId: "maya", duration: 15, format: "video", experience: "hear",
+  });
+  for (const action of ["accept", "checkout", "join", "invite-request", "invite-host-approve"])
+    await perform(action, room);
+  const { invitationToken } = await perform("invite-issue", room);
+  const linkInput = { ...room, token: invitationToken };
+  assert.equal((await send(forwarded, "invite-guest-open", linkInput)).status, 404);
+  await perform("invite-guest-open", linkInput);
+  await perform("invite-guest-consent", { ...room, ...guestTerms });
+  const admissions = await Promise.all([send(request, "invite-admit", room), send(request, "invite-admit", room)]);
+  assert.deepEqual(admissions.map(({ status }) => status).sort(), [200, 409]);
+  await perform("invite-guest-join", room);
+  await perform("invite-guest-leave", room);
+  const state = await (await request("/api/state")).json();
+  assert.equal(state.bookings[0].invitation.status, "GUEST_LEFT");
+  assert.equal(state.bookings[0].status, "LIVE");
+});
 function completed(r) {
   const id = paid(r);
   r.run("join", { bookingId: id });
@@ -49,13 +223,22 @@ function balance(s) {
       0,
     );
 }
-test("eligibility gates booking and malformed confirmations", () => {
+test("demo booking requires age and terms and accepts location-free and legacy confirmations", () => {
   const r = runner();
   assert.throws(() => r.run("hold", { hostId: "maya" }), /eligibility/);
   assert.throws(
-    () => r.run("eligibility", { adult: true, us: false, terms: true }),
-    /Confirm adult/,
+    () => r.run("eligibility", { adult: false, terms: true }),
+    /Confirm you are 18/,
   );
+  assert.throws(
+    () => r.run("eligibility", { adult: true, terms: false }),
+    /accept the demo terms/,
+  );
+  r.run("eligibility", { adult: true, terms: true });
+  assert.equal(r.s.eligible, true);
+  const legacy = runner();
+  legacy.run("eligibility", { adult: true, us: true, terms: true });
+  assert.equal(legacy.s.eligible, true);
 });
 test("T01 host exclusivity in serialized state; existing claim is unavailable", () => {
   const r = runner();

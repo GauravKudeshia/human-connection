@@ -23,6 +23,7 @@ import { isTerminal } from "../../lib/demo-policy.mjs";
 import { hostPhoto } from "../../lib/presentation.mjs";
 import { expName, human, fmtTime } from "./shared";
 import ActivityPanel from "./activity-panel";
+import InviteFriend from "./invite-friend";
 
 function DemoRating({ label, question, rating, onChange }) {
   return (
@@ -461,6 +462,7 @@ export default function SessionFlow({
             <p className="microcopy">
               Mute is a UI demonstration; no microphone is active.
             </p>
+            <InviteFriend booking={b} now={now} busy={busy} act={act} />
             <div className="demo-call-end">
               <p>Ready to explore what comes after?</p>
               <button

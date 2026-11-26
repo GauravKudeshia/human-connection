@@ -181,6 +181,16 @@ test("intro media remains private until independent moderation and preserves acc
     (await f.service.media(f.stranger, uploaded.introId)).byteLength,
     12,
   );
+  for (const [owner, blocked] of [[f.host, f.stranger], [f.stranger, f.host]]) {
+    await f.db.prepare("INSERT INTO mp_blocks VALUES(?,?,?)").bind(owner.id, blocked.id, start).run();
+    await assert.rejects(() => f.service.media(f.stranger, uploaded.introId), { status: 404 });
+    assert.equal((await f.service.media(f.host, uploaded.introId)).byteLength, 12);
+    await f.db.prepare("DELETE FROM mp_blocks WHERE owner_id=? AND blocked_id=?").bind(owner.id, blocked.id).run();
+  }
+  await f.db.prepare("INSERT INTO mp_blocks VALUES(?,?,?)").bind(f.host.id, f.reviewer.id, start).run();
+  const unsteppedReviewer = await f.market.provisionIdentity({ subject: "reviewer", stepUp: false });
+  await assert.rejects(() => f.service.media(unsteppedReviewer, uploaded.introId), { code: "STEP_UP_REQUIRED" });
+  assert.equal((await f.service.media(f.reviewer, uploaded.introId)).transcript, f.media.transcript);
   assert.equal(
     f.db.sqlite.prepare("SELECT intro_reference FROM mp_host_profiles").get()
       .intro_reference,
@@ -193,6 +203,47 @@ test("intro media remains private until independent moderation and preserves acc
       reason: "Second decision.",
     }),
   );
+});
+
+test("timed video captions are validated, approved independently and use private media access", async (t) => {
+  const f = await fixture();
+  t.after(() => f.db.close());
+  const text = "\uFEFFWEBVTT\r\n\r\n00:00.000 --> 00:04.300\r\nHi, I’m Élodie.\r\n\r\n00:05.200 --> 00:13.000\r\nI like sharing stories.\r\n";
+  const captions = { language: "EN", text };
+  const clip = { ...f.media, contentType: "video/mp4", captions };
+  for (const invalid of [
+    { language: "not a language", text },
+    { language: "en", text: "This is a transcript, not a timed caption track." },
+    { language: "en", text: text.replace("00:13.000", "00:31.000") },
+    { language: "en", text: text.replace("00:05.200", "00:00.000").replace("00:00.000", "00:01.000") },
+    { language: "en", text: text + "x".repeat(16_384) },
+  ]) {
+    await assert.rejects(
+      () => f.service.uploadIntro(f.host, { ...clip, captions: invalid }, "invalid-caption"),
+      { code: "INVALID_CAPTIONS" },
+    );
+  }
+  await assert.rejects(() => f.service.uploadIntro(f.host, { ...f.media, captions }, "audio-caption"), { code: "INVALID_CAPTIONS" });
+  assert.equal(f.objects.size, 0);
+  const intro = await f.service.uploadIntro(f.host, clip, "captioned-clip");
+  assert.deepEqual(await f.service.uploadIntro(f.host, clip, "captioned-clip"), intro);
+  await assert.rejects(
+    () => f.service.uploadIntro(f.host, { ...clip, captions: { ...captions, text: text.replace("stories", "games") } }, "captioned-clip"),
+    { code: "KEY_REUSED" },
+  );
+  assert.equal((await f.service.read(f.reviewer, "intros"))[0].caption_language, "en");
+  const pending = await f.service.media(f.reviewer, intro.introId, true);
+  assert.equal(pending.contentType, "text/vtt; charset=utf-8");
+  assert.equal(pending.byteLength, pending.body.byteLength);
+  assert.equal(new TextDecoder().decode(pending.body), text.replace(/^\uFEFF/, "").replaceAll("\r\n", "\n"));
+  await assert.rejects(() => f.service.media(f.customer, intro.introId, true), { status: 403 });
+  const review = { introId: intro.introId, decision: "APPROVED", reason: "Checked timing and wording.", durationConfirmed: true };
+  await assert.rejects(() => f.service.act(f.reviewer, "host-intro-review", review), { status: 400 });
+  await f.service.act(f.reviewer, "host-intro-review", { ...review, captionsConfirmed: true });
+  f.db.sqlite.prepare("UPDATE mp_host_profiles SET status='APPROVED' WHERE user_id=?").run(f.host.id);
+  assert.deepEqual((await f.service.media(f.customer, intro.introId, true)).body, pending.body);
+  f.db.sqlite.prepare("INSERT INTO mp_blocks VALUES(?,?,?)").run(f.customer.id, f.host.id, start);
+  await assert.rejects(() => f.service.media(f.customer, intro.introId, true), { status: 404 });
 });
 test("upload validates size, content signature, consent and replay payload before storing", async (t) => {
   const f = await fixture();

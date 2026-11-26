@@ -4,6 +4,7 @@ import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 import { createMarketplace } from "../lib/marketplace/store.mjs";
 import { createSessionService } from "../lib/marketplace/sessions.mjs";
 import { createPaymentService } from "../lib/marketplace/finance.mjs";
+import { sweepGuestInvitations } from "../lib/marketplace/guest-invitations.mjs";
 import {
   createPrivacy,
   privacyPolicyFromConfig,
@@ -76,12 +77,14 @@ const worker = {
         );
       }
       await runTask("analytics retention", () => operations.pruneAnalytics());
+      const policy = privacyPolicyFromConfig(config);
       const privacy = createPrivacy(db, {
         bucket: config.MARKETPLACE_MEDIA,
-        policy: privacyPolicyFromConfig(config),
+        policy,
       });
       await runTask("privacy requests", () => privacy.run({ limit: 10 }));
       await runTask("privacy retention", () => privacy.sweepExpired());
+      await runTask("guest retention", () => sweepGuestInvitations(db, { policy }));
       await runTask("request quota pruning", () => {
         const cutoff = Math.floor(Date.now() / 60000) - 2;
         const database = db as D1Database;

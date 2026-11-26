@@ -102,7 +102,7 @@ test("router quota, JSON validation, same-origin policy and logs preserve privat
 test("style recommendations read only the signed-in guest’s completed sessions for the chosen experience", async (t) => {
   const f = await marketplaceFixture();
   t.after(() => f.db.close());
-  async function sample(customer, experience, style, status = "COMPLETED") {
+  async function sample(customer, experience, style, status = "COMPLETED", comfortRating) {
     const id = crypto.randomUUID();
     const now = f.clock();
     await f.db.batch([
@@ -126,11 +126,15 @@ test("style recommendations read only the signed-in guest’s completed sessions
       f.db
         .prepare("INSERT INTO mp_reviews VALUES(?,?,5,1,?,?)")
         .bind(id, customer.id, "Private note must never be returned", now),
+      ...(comfortRating ? [
+        f.db.prepare("INSERT INTO mp_review_details(booking_id,comfort_rating) VALUES(?,?)").bind(id, comfortRating),
+      ] : []),
     ]);
   }
   await sample(f.customer, "laugh", "playful-banter", "PARTIAL_DELIVERY");
   await sample(f.customer, "distract", "conversation-games", "PARTIAL_DELIVERY");
   await sample(f.customer, "hear", "just-listen");
+  await sample(f.customer, "laugh", "funny-stories", "COMPLETED", 1);
   await sample(f.other, "distract", "trivia-questions");
 
   const recommendFor = (actor) => {
@@ -174,7 +178,7 @@ test("style recommendations read only the signed-in guest’s completed sessions
   assert.equal((await guest("constructor")).status, 400);
   assert.deepEqual((await (await guest("laugh")).json()).data, {
     experience: "laugh",
-    style: "funny-stories",
+    style: "playful-banter",
     reason: "starter",
   });
 
@@ -185,7 +189,7 @@ test("style recommendations read only the signed-in guest’s completed sessions
   assert.equal((await (await guest("surprise")).json()).data.reason, "starter");
   assert.equal(
     (await f.db.prepare("SELECT COUNT(*) AS total FROM mp_bookings").first()).total,
-    4,
+    5,
   );
 });
 test("account suspension is scoped, audited, releases reservations and requires independent staff rights", async (t) => {

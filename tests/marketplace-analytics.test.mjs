@@ -406,6 +406,22 @@ test("financial outcome metrics and denominators cannot be fabricated by client 
   assert.equal(result.financial.deliveredContribution.centsPerSession, null);
 });
 
+test("host discovery instrumentation accepts interaction categories without retaining search or language text", async (t) => {
+  const f = await fixture(t);
+  const names = ["host_search_submitted", "availability_filter_applied", "host_viewed"];
+  for (const name of names) {
+    await f.ops.record(f.customer, { name, experience: "laugh", query: "Private topic", language: "es" }, name);
+  }
+  await f.ops.record(f.customer, { name: "host_application_started" }, "host-application-start");
+  const rows = f.db.sqlite.prepare("SELECT * FROM mp_analytics_events ORDER BY name").all();
+  assert.deepEqual(rows.map(({ name }) => name), [...names, "host_application_started"].sort());
+  assert(rows.every((row) => row.booking_id === null));
+  assert.equal(rows.find(({ name }) => name === "host_application_started").experience, null);
+  assert(rows.filter(({ name }) => names.includes(name)).every((row) => row.experience === "laugh"));
+  assert(!JSON.stringify(rows).includes("Private topic"));
+  assert(rows.every((row) => !Object.hasOwn(row, "language")));
+});
+
 test("any settled partial refund contributes once to refund incidence while principal stays itemized", async (t) => {
   const f = await fixture(t);
   f.booking("partially-refunded");

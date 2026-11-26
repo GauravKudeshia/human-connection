@@ -1,5 +1,25 @@
 # QA and test evidence
 
+## Guest recovery, safety and accessibility follow-up
+
+November 24, 2026. **266 tests passed** without failures or skips in the configured suite. ESLint, TypeScript and the Vinext build passed. The two additive migrations were tested against the prior thirteen-migration schema and through the full local SQLite suite.
+
+- Guest integration tests verified recovery after an interrupted response, scope separation, one-time admission, a report after departure, deadline expiry, staff MFA, an audited takeover, pagination, deduplicated alerts, and retention holds. Account closure immediately revokes access and defers erasure while a guest report may be submitted or remains open.
+- A keyboard-driven browser fixture retried an interrupted invitation, observed simulated admission, left the preview and submitted a report. The final screen fit 320, 390, 768 and 1440 px without horizontal overflow. Fixture responses do not use a hosted media connection.
+- Media fixtures verified review and access for WebVTT tracks, transcript fallbacks, caption removal on erasure, private two-person room policy and isolation of guest activity from paid delivery. Native playback on physical devices and screen-reader acceptance remain open.
+
+Production and hosted test credentials were unavailable in this workspace. [Three-person Daily rehearsal](DAILY-GUEST-MEDIA-REHEARSAL.md) · [Latest V3 audit](CURRENT-APPLICATION-AUDIT.md#latest-verification-for-guest-recovery-safety-and-accessibility)
+
+## Full V3 audit follow-up
+
+The November 24 follow-up and second audit passed **256 tests, with zero failures or skips**, in the normal engine, browser transport, V1.3, experience and marketplace command. ESLint, TypeScript, Vinext and the GitHub Pages demo build passed. A SQLite database with an existing host profile upgraded from 10 to 13 migrations and replayed the three additions successfully. Integrity and foreign-key checks passed.
+
+- Scheduling tests cover timezone gaps and repeated hours, competing future and immediate reservations, expiry, ownership, unchanged quotes, and rejection before payment when a quote changes. The local HTTP fixture completed a scheduled booking through signed test payment and room attendance callbacks to a $10 receipt.
+- Discovery and profile tests cover scoped future profiles, blocked and wrong-language denial, public fields, revision conflicts, introduction access, and the selected host in booking details. A focused browser fixture used the real React components with fictional API results. It exercised topic search, keyboard profile navigation, future-only controls and the scheduled list. My Sessions fit 320, 390, 768 and 1440 px. Surprise Me selected a compatible older style while showing three options. A separate regression proves low comfort overrides a positive quality score.
+- Guest tests cover the staging flag, independent claim/status/report/leave quotas, retry-safe links and reports, dual approval, terminal credential removal, unchanged billing, staff MFA, assignment and report holds. Guest preview stops at simulated admission.
+
+Hosted identity and provider verification, physical devices, a full screen-reader pass, and real three-person media remain open. The reproduction uses installed dependencies and local SQLite-backed D1 fixtures. [Current implementation tracker](MASTER-IMPLEMENTATION-TRACKER.md#follow-up-to-the-full-v3-audit)
+
 ## V3 review verification
 
 The Nov. 24 baseline had 211 passing tests. The combined V3 implementation passed 232 tests in the configured engine, browser transport, V1.3, experience and marketplace suites. ESLint, TypeScript and both application builds passed. The local SQLite migration test upgraded an eight-migration database with an existing account and applied both additive migrations twice, with no integrity or foreign-key failures.

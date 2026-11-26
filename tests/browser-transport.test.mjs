@@ -24,7 +24,7 @@ test("public preview lets a guest complete a demo checkout and tip with no backe
     assert.equal(r.status, 200, d.error?.message);
     return d;
   };
-  await run("eligibility", { adult: true, us: true, terms: true });
+  await run("eligibility", { adult: true, terms: true });
   const hold = await run("hold", {
     hostId: "maya",
     experience: "hear",
@@ -76,7 +76,7 @@ test("Make Me Laugh completes the V3 demo booking path at its existing 30-minute
     assert.equal(response.status, 200, body.error?.message);
     return body;
   }
-  await send("eligibility", { adult: true, us: true, terms: true });
+  await send("eligibility", { adult: true, terms: true });
   const { result } = await send("match", {
     experience: "laugh",
     style: "playful-banter",

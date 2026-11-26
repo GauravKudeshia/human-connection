@@ -388,11 +388,16 @@ test("private room adapter binds tokens to a room, limits audio grants and disab
     apiKey: "fixture",
     allowTestRooms: true,
     fetcher: async (url, options) => {
-      calls.push({ url, body: JSON.parse(options.body) });
-      return Response.json({
-        url: "https://test.daily.co/hc-test-booking",
-        token: "test-token",
-      });
+      const body = JSON.parse(options.body);
+      calls.push({ url, body });
+      if (url.endsWith("/rooms"))
+        return Response.json({
+          name: body.name,
+          privacy: body.privacy,
+          config: body.properties,
+          url: "https://test.daily.co/hc-test-booking",
+        });
+      return Response.json({ token: "test-token" });
     },
   });
   await video.createRoom(
@@ -409,12 +414,14 @@ test("private room adapter binds tokens to a room, limits audio grants and disab
   assert.equal(calls[0].body.privacy, "private");
   assert.equal(calls[0].body.properties.enable_transcription_storage, false);
   assert.equal(calls[0].body.properties.max_participants, 2);
+  assert.equal(calls[0].body.properties.enable_knocking, false);
   assert.equal(calls[1].body.properties.user_id, "customer");
   assert.equal(calls[1].body.properties.is_owner, false);
   assert.equal(calls[1].body.properties.enable_recording_ui, false);
   assert.equal(calls[1].body.properties.start_cloud_recording, false);
   assert.equal(calls[1].body.properties.auto_start_transcription, false);
   assert.deepEqual(calls[1].body.properties.permissions.canSend, ["audio"]);
+  assert.equal(calls[1].body.properties.permissions.canAdmin, false);
   assert.deepEqual(calls[2].body.properties.permissions.canSend, [
     "audio",
     "video",

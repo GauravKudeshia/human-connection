@@ -7,23 +7,20 @@ import {
   bookableStylesFor,
   experienceChoices,
   experiences,
+  stylesFor,
 } from "../../lib/catalog.mjs";
 import { styleRecommendationMessages } from "../../lib/style-recommendation.mjs";
-import {
-  languageName,
-  languageProficiency,
-  normalizeLanguageTag,
-  readHostLanguages,
-} from "../../lib/conversation-languages.mjs";
+import { normalizeLanguageTag } from "../../lib/conversation-languages.mjs";
+import { BETA_PRICE_POLICY } from "../../lib/marketplace/pricing.mjs";
 import { createBetaApi, human, money } from "./beta-api.mjs";
 import { HostWorkspace, OperationsWorkspace, useResource } from "./beta-panels";
 import BetaSession from "./beta-session";
+import BetaHostDiscovery from "./beta-discovery";
+import { ScheduledReservations } from "./beta-schedule";
 import {
   ClosureReceipt,
   PrivacyAccount,
-  ReviewScores,
   VisitConsent,
-  WrittenReviews,
 } from "./beta-additions";
 
 const defaults = {
@@ -197,7 +194,7 @@ export default function BetaApp({ request = fetch, workspace = "customer" } = {}
     );
     const style =
       experience &&
-      bookableStylesFor(experience.id).find(
+      stylesFor(experience.id).find(
         ({ id }) => id === booking.quote?.style,
       );
     setPreferences({
@@ -450,12 +447,32 @@ export default function BetaApp({ request = fetch, workspace = "customer" } = {}
             {view === "history" && (
               <BookingHistory
                 api={api}
+                run={run}
+                busy={busy}
                 revision={revision}
                 onSelect={openBooking}
                 onRepeat={repeat}
               />
             )}
-            {view === "account" && <PrivacyAccount api={api} />}
+            {view === "account" && (
+              <>
+                <PrivacyAccount api={api} />
+                <section className="beta-card" aria-labelledby="beta-account-host-heading">
+                  <h2 id="beta-account-host-heading">{roles.includes("host") ? "Your host studio" : "Interested in hosting?"}</h2>
+                  <button
+                    type="button"
+                    className="beta-secondary"
+                    onClick={() => {
+                      if (!roles.includes("host"))
+                        void api.act("track", { name: "host_application_started" }).catch(() => {});
+                      navigate("host");
+                    }}
+                  >
+                    {roles.includes("host") ? "Open host studio" : "Become a host"}
+                  </button>
+                </section>
+              </>
+            )}
             {view === "updates" && (
               <PersonalUpdates
                 api={api}
@@ -500,7 +517,7 @@ export default function BetaApp({ request = fetch, workspace = "customer" } = {}
       <footer className="beta-footer">
         <span>Adults 18+ · U.S. · Platonic, non-clinical experiences</span>
         <Link href="/">Interactive demo</Link>
-        {workspace === "customer" && <Link href="/host/login">Become a host</Link>}
+        {workspace === "customer" && <Link href="/become-a-host">Become a host</Link>}
         <span>
           Private calls use participant access. Recording is off by default.
         </span>
@@ -543,11 +560,13 @@ function CustomerChoice({
     {
       ...(preferences.experience ? { experience: preferences.experience } : {}),
       format: preferences.format,
+      duration: preferences.duration,
       ...(preferredHost ? { hostId: preferredHost.user_id } : {}),
     },
     12000,
   );
   const [consent, setConsent] = useState(false);
+  const [showDiscovery, setShowDiscovery] = useState(false);
   const [hosts, setHosts] = useState(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
@@ -563,19 +582,20 @@ function CustomerChoice({
     ({ id }) => id === preferences.experience,
   );
   const styles = experience ? bookableStylesFor(experience.id) : [];
-  const selectedStyle = styles.find(({ id }) => id === preferences.style);
+  const selectedStyle = experience && stylesFor(experience.id).find(({ id }) => id === preferences.style);
   const preferredLanguage = normalizeLanguageTag(preferences.language);
   const selectedLanguage = languages?.find(
     ({ tag }) => tag === preferredLanguage,
   );
   const canMatchLanguage = selectedLanguage?.availableNow === true;
   const eligible = me.eligible === true || eligibility?.eligible === true;
-  const canRequest =
+  const canBrowse =
     eligible &&
-    canMatchLanguage &&
+    Boolean(selectedLanguage) &&
     !searching &&
     !suggesting &&
     !busy;
+  const canRequest = canBrowse && canMatchLanguage;
   useEffect(
     () => () => {
       suggestionVersion.current++;
@@ -588,6 +608,10 @@ function CustomerChoice({
     choicesRef.current?.focus();
   }, [preferences.experience]);
   function resetSearch() {
+    setShowDiscovery(false);
+    clearHostResults();
+  }
+  function clearHostResults() {
     searchVersion.current++;
     setSearching(false);
     setHosts(null);
@@ -630,7 +654,7 @@ function CustomerChoice({
       );
       const style =
         pickedExperience &&
-        bookableStylesFor(pickedExperience.id).find(({ id }) => id === pick?.style);
+        stylesFor(pickedExperience.id).find(({ id }) => id === pick?.style);
       if (!style || pickedExperience.id !== requestedExperience) {
         setSuggestionNotice(styleRecommendationMessages["no-fit"]);
         return;
@@ -654,9 +678,7 @@ function CustomerChoice({
       if (version === suggestionVersion.current) setSuggesting(false);
     }
   }
-  async function findHosts() {
-    if (!canRequest) return;
-    trackChoice("browse_hosts_opened", experience.id);
+  async function findHosts(choice = preferences, query = "") {
     const version = ++searchVersion.current;
     setSearching(true);
     setSearchError("");
@@ -664,8 +686,9 @@ function CustomerChoice({
     setHosts(null);
     try {
       const result = await api.read("hosts", null, {
-        ...preferences,
-        style: preferences.style || "",
+        ...choice,
+        style: choice.style || "",
+        ...(query ? { query } : {}),
         ...(preferredHost ? { hostId: preferredHost.user_id } : {}),
       });
       if (version !== searchVersion.current) return;
@@ -673,12 +696,24 @@ function CustomerChoice({
         ? result.filter((host) => host.user_id === preferredHost.user_id)
         : result;
       setHosts(matches);
-      setNoMatch(!matches.length);
     } catch (issue) {
       if (version === searchVersion.current) setSearchError(issue.message);
     } finally {
       if (version === searchVersion.current) setSearching(false);
     }
+  }
+  function openDiscovery() {
+    if (!canBrowse) return;
+    setShowDiscovery(true);
+    trackChoice("browse_hosts_opened", experience.id);
+    void findHosts();
+  }
+  function searchDiscovery(choice, query, period) {
+    if (choice.language !== preferences.language)
+      trackChoice("language_filter_applied", experience.id);
+    onChange(choice);
+    if (period === "now") void findHosts(choice, query);
+    else clearHostResults();
   }
   async function reserve(hostId) {
     if (!canRequest) return;
@@ -691,7 +726,10 @@ function CustomerChoice({
       {
         onError(issue) {
           if (issue.code !== "NO_MATCH") return false;
-          if (version === searchVersion.current) setNoMatch(true);
+          if (version === searchVersion.current) {
+            setNoMatch(true);
+            choicesRef.current?.focus();
+          }
           return true;
         },
       },
@@ -929,8 +967,8 @@ function CustomerChoice({
           )}
           <button
             className="beta-primary"
-            disabled={!canRequest}
-            onClick={preferredHost ? findHosts : () => reserve()}
+            disabled={preferredHost ? !canBrowse : !canRequest}
+            onClick={preferredHost ? openDiscovery : () => reserve()}
           >
             {preferredHost
               ? searching
@@ -941,24 +979,17 @@ function CustomerChoice({
           {!preferredHost && (
             <button
               className="beta-secondary"
-              disabled={!canRequest}
-              onClick={findHosts}
+              disabled={!canBrowse}
+              onClick={openDiscovery}
             >
               {searching ? "Checking availability…" : "I’ll choose a host"}
             </button>
           )}
           <p className="beta-small">
-            Test prices start at $10 for 15 minutes and $18 for 30 minutes. You’ll
-            see the total after a host accepts. Searching and declines create
-            no charge.
+            {money(BETA_PRICE_POLICY.prices[preferences.duration])} test price. You’ll confirm the total after a host accepts. Searching and declines create no charge.
           </p>
         </div>
       </div>
-      {searchError && (
-        <p className="beta-alert" role="alert">
-          {searchError}
-        </p>
-      )}
       {noMatch && (
         <div className="beta-card" role="status">
           <h2>No host fits just now.</h2>
@@ -979,128 +1010,39 @@ function CustomerChoice({
           >
             Adjust my choices
           </button>
-          <button className="beta-text" disabled={!canRequest} onClick={findHosts}>
-            Check again
+          <button className="beta-text" disabled={!canBrowse} onClick={openDiscovery}>
+            Browse hosts
           </button>
         </div>
       )}
-      {hosts?.length > 0 && (
-        <section aria-label="Available hosts">
-          <h2>Meet your kind of company.</h2>
-          <div className="beta-host-grid">
-            {hosts.map((host) => (
-              <article className="beta-card" key={host.user_id}>
-                {host.photo && (
-                  <Image
-                    unoptimized
-                    className="beta-profile-photo"
-                    src={
-                      "/api/marketplace/media?kind=photo&id=" +
-                      encodeURIComponent(host.photo.id)
-                    }
-                    alt={host.photo.alt_text}
-                    width={160}
-                    height={160}
-                  />
-                )}
-                <h3>{host.display_name}</h3>
-                {host.identityVerified && (
-                  <p className="beta-small">
-                    Identity verified · Experience reviewed
-                  </p>
-                )}
-                <p>{host.biography}</p>
-                {host.statistics && (
-                  <>
-                    <p className="beta-small">
-                      {host.statistics.delivered} delivered sessions
-                      {host.repeatGuest ? " · You’ve met before" : ""}
-                    </p>
-                    <ReviewScores statistics={host.statistics} />
-                    <WrittenReviews reviews={host.writtenReviews} />
-                  </>
-                )}
-                {host.intro && (
-                  <div className="beta-introduction">
-                    <p>Host introduction</p>
-                    {host.intro.content_type.startsWith("video/") ? (
-                      <video
-                        controls
-                        preload="none"
-                        src={
-                          "/api/marketplace/media?id=" +
-                          encodeURIComponent(host.intro.id)
-                        }
-                      />
-                    ) : (
-                      <audio
-                        controls
-                        preload="none"
-                        src={
-                          "/api/marketplace/media?id=" +
-                          encodeURIComponent(host.intro.id)
-                        }
-                      />
-                    )}
-                    <details>
-                      <summary>Read the introduction</summary>
-                      <p>{host.intro.transcript}</p>
-                    </details>
-                  </div>
-                )}
-                <p className="beta-small">
-                  {readHostLanguages(host.languages)
-                    .map(({ tag, proficiency }) =>
-                      proficiency
-                        ? `${languageName(tag)} (${languageProficiency[proficiency]})`
-                        : languageName(tag),
-                    )
-                    .join(" · ")}{" "}
-                  ·{" "}
-                  {parseList(host.formats).map(human).join(" · ")}
-                </p>
-                <button
-                  className="beta-primary"
-                  disabled={!canRequest}
-                  onClick={() => reserve(host.user_id)}
-                >
-                  Request {host.display_name}
-                </button>
-                <button
-                  className="beta-text"
-                  disabled={busy}
-                  onClick={() =>
-                    run(
-                      "favourite",
-                      { hostId: host.user_id, saved: true },
-                      "Host saved.",
-                    )
-                  }
-                >
-                  Save host
-                </button>
-              </article>
-            ))}
-          </div>
-        </section>
+      {showDiscovery && (
+        <BetaHostDiscovery
+          api={api}
+          run={run}
+          busy={busy}
+          revision={revision}
+          hosts={hosts}
+          searching={searching}
+          error={searchError}
+          preferences={preferences}
+          languages={languages}
+          preferredHost={preferredHost}
+          canRequest={canRequest}
+          onSearch={searchDiscovery}
+          onTrack={(name) => trackChoice(name, experience.id)}
+          onReserve={reserve}
+        />
       )}
     </section>
   );
 }
-export function parseList(value) {
-  if (Array.isArray(value)) return value;
-  try {
-    return JSON.parse(value || "[]");
-  } catch {
-    return [];
-  }
-}
-function BookingHistory({ api, revision, onSelect, onRepeat }) {
+function BookingHistory({ api, run, busy, revision, onSelect, onRepeat }) {
   const { data, error, loading } = useResource(api, "bookings", null, revision);
   return (
     <section>
       <p className="beta-eyebrow">YOUR HUMAN TIME</p>
       <h1>My sessions</h1>
+      <ScheduledReservations api={api} run={run} busy={busy} revision={revision} onSelect={onSelect} />
       {error && <p className="beta-alert">{error}</p>}
       {loading && !data && <p>Loading your sessions…</p>}
       {data?.length === 0 && (

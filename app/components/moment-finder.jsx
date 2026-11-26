@@ -1,7 +1,7 @@
 "use client";
 import React, { useRef, useEffect } from "react";
 import { ArrowLeft, ArrowRight, Check, Sparkles } from "lucide-react";
-import { bookableStylesFor, styleName, money } from "../../lib/catalog.mjs";
+import { bookableStylesFor, stylesFor, styleName, money } from "../../lib/catalog.mjs";
 import { priceFor } from "../../lib/demo-policy.mjs";
 import { styleRecommendationMessages } from "../../lib/style-recommendation.mjs";
 import ExperienceBoard from "./experience-board";
@@ -26,7 +26,9 @@ export default function MomentFinder({
 }) {
   const heading = useRef(null);
   const styles = bookableStylesFor(preferences.experience);
-  const style = styles.find((item) => item.id === preferences.style);
+  const style = stylesFor(preferences.experience).find(
+    (item) => item.id === preferences.style,
+  );
   const currentSuggestion =
     suggestion?.experience === preferences.experience ? suggestion : null;
   const surpriseSelected = Boolean(
@@ -134,6 +136,9 @@ export default function MomentFinder({
                 )}
                 {styleRecommendationMessages[currentSuggestion.reason]}
               </p>
+            )}
+            {style && !surpriseSelected && !styles.some(({ id }) => id === style.id) && (
+              <p className="style-suggestion">Current style: {style.name}</p>
             )}
           </div>
           <div className="journey-actions">
