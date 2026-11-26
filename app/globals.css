@@ -3298,8 +3298,8 @@ th:not(:first-child) {
   .moment-hero {
     grid-template-columns: 1fr;
     grid-template-areas: "copy" "board" "actions";
-    row-gap: 18px;
-    padding-block: 25px 24px;
+    row-gap: 12px;
+    padding-block: 20px 24px;
   }
   .welcome-kicker {
     font-size: 10px;
@@ -3363,6 +3363,50 @@ th:not(:first-child) {
   .moment-tile-arrow svg {
     width: 15px;
     height: 15px;
+  }
+  .moment-hero > .moment-board {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-auto-rows: 1fr;
+    height: auto;
+  }
+  .moment-hero .moment-tile {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    min-block-size: 56px;
+    padding: 6px 10px 6px 74px;
+    border: 1px solid var(--line);
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .moment-hero .moment-tile-laugh {
+    grid-column: auto;
+  }
+  .moment-hero .moment-tile img {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 62px;
+    object-position: center;
+  }
+  .moment-hero .moment-tile::after {
+    display: none;
+  }
+  .moment-hero .moment-tile-copy,
+  .moment-hero .moment-tile-arrow {
+    position: static;
+  }
+  .moment-hero .moment-tile-title {
+    font-size: 20px;
+  }
+  .moment-hero .moment-tile-description {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .moment-hero .moment-tile-arrow {
+    background: transparent;
+    color: inherit;
   }
   .starter-section {
     padding-block: 22px;
